@@ -8,3 +8,4 @@ harness-report*.json
 e2e-out/
 apps/app/android/
 apps/app/ios/
+apps/desktop/release/
