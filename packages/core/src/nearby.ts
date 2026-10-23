@@ -125,7 +125,12 @@ export interface NearbyStatus {
   /** Phones of this conference in range. */
   seen: number;
   links: number;
+  /** Last thing Nearby refused, for showing on screen (the phone may have no way to send logs). */
+  error?: string;
 }
+
+/** If the phone that should dial hasn't after this long, the other one does. */
+const FALLBACK_DIAL_MS = 5000;
 
 /**
  * Keeps up to `maxLinks` Nearby links to phones of the same conference and
@@ -138,7 +143,10 @@ export class NearbyRelay {
   private readonly confId: string;
   private readonly maxLinks: number;
   private readonly sockets = new Map<string, NearbySocket>();
-  private readonly found = new Map<string, string>();
+  /** Endpoint → its name and when we first saw it. */
+  private readonly found = new Map<string, { name: string; since: number }>();
+  private timer: ReturnType<typeof setInterval> | null = null;
+  private lastError: string | undefined;
   private readonly dialing = new Set<string>();
   private unsubscribe: () => void = () => {};
   private running = false;
@@ -156,12 +164,19 @@ export class NearbyRelay {
     if (this.running) return;
     this.running = true;
     this.unsubscribe = this.native.onEvent((e) => this.onEvent(e));
-    await this.native.start(NEARBY_SERVICE_ID, this.myName);
+    this.timer = setInterval(() => this.dialSome(), 2000);
+    try {
+      await this.native.start(NEARBY_SERVICE_ID, this.myName);
+    } catch (e) {
+      this.lastError = e instanceof Error ? e.message : String(e);
+      throw e;
+    }
   }
 
   async stop(): Promise<void> {
     if (!this.running) return;
     this.running = false;
+    if (this.timer) clearInterval(this.timer);
     this.unsubscribe();
     for (const s of this.sockets.values()) s.destroy();
     this.sockets.clear();
@@ -170,7 +185,7 @@ export class NearbyRelay {
   }
 
   status(): NearbyStatus {
-    return { running: this.running, seen: this.found.size, links: this.sockets.size };
+    return { running: this.running, seen: this.found.size, links: this.sockets.size, error: this.lastError };
   }
 
   private onEvent(e: NearbyEvent): void {
@@ -179,7 +194,7 @@ export class NearbyRelay {
         const them = parseName(e.name);
         const me = parseName(this.myName)!;
         if (!them || them.conf !== this.confId || them.key === me.key) return;
-        this.found.set(e.endpoint, e.name);
+        if (!this.found.has(e.endpoint)) this.found.set(e.endpoint, { name: e.name, since: Date.now() });
         if (me.key < them.key) this.maybeDial(e.endpoint);
         return;
       }
@@ -204,10 +219,7 @@ export class NearbyRelay {
         this.sockets.delete(e.endpoint);
         socket?.closedByUs();
         // Someone else in range may take the free slot.
-        for (const [endpoint, name] of this.found) {
-          const them = parseName(name);
-          if (them && parseName(this.myName)!.key < them.key) this.maybeDial(endpoint);
-        }
+        this.dialSome();
         return;
       }
       case 'data':
@@ -216,10 +228,27 @@ export class NearbyRelay {
     }
   }
 
+  /**
+   * Dials phones in range that aren't linked yet. The smaller key dials first;
+   * discovery can be one-sided, so after a few seconds the other phone dials
+   * too rather than both waiting forever. Failed dials are retried here.
+   */
+  private dialSome(): void {
+    const me = parseName(this.myName)!.key;
+    const now = Date.now();
+    for (const [endpoint, { name, since }] of this.found) {
+      const them = parseName(name);
+      if (them && (me < them.key || now - since >= FALLBACK_DIAL_MS)) this.maybeDial(endpoint);
+    }
+  }
+
   private maybeDial(endpoint: string): void {
     if (!this.running || this.sockets.has(endpoint) || this.dialing.has(endpoint)) return;
     if (this.sockets.size + this.dialing.size >= this.maxLinks) return;
     this.dialing.add(endpoint);
-    this.native.connect(endpoint, this.myName).catch(() => this.dialing.delete(endpoint));
+    this.native.connect(endpoint, this.myName).catch((e) => {
+      this.dialing.delete(endpoint);
+      this.lastError = e instanceof Error ? e.message : String(e);
+    });
   }
 }

@@ -47,6 +47,7 @@ export function RelayToggle({ onReplace }: { onReplace: (s: AppSession) => void 
         ) : null}
       </Row>
       {on ? <Text style={styles.muted}>Keep the app open: Android pauses relaying when it’s in the background.</Text> : null}
+      {on && status?.error ? <Text style={styles.muted}>Nearby: {status.error}</Text> : null}
       {error ? <Text style={styles.alert}>⚠ {error}</Text> : null}
     </View>
   );

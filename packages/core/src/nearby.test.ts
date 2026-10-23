@@ -185,6 +185,24 @@ describe('relay over Nearby', () => {
     expect(back && Buffer.compare(back, data) === 0).toBe(true);
   }, 30_000);
 
+  it('links even when only one phone sees the other', async () => {
+    const c = conference();
+    const air = new Air();
+    const p = await c.member(['disec'], 'delegate', 'One');
+    const q = await c.member(['disec'], 'delegate', 'Two');
+    const rp = air.radio();
+    const rq = air.radio();
+    const confId = p.d.node.replica.confId;
+    await new NearbyRelay({ device: p.d, native: rp, confId }).start();
+    await new NearbyRelay({ device: q.d, native: rq, confId }).start();
+    air.inRange(rp, rq);
+    // Hide each phone from the other in turn: the one that should dial sees nothing.
+    const smaller = p.d.node.key.slice(0, 16) < q.d.node.key.slice(0, 16) ? rp : rq;
+    const other = smaller === rp ? rq : rp;
+    smaller.emit({ type: 'lost', endpoint: other.id });
+    await waitFor(() => p.d.node.neighbours().length === 1 && q.d.node.neighbours().length === 1, 10_000);
+  }, 15_000);
+
   it('only one of two phones dials, and the link survives the other side dropping', async () => {
     const c = conference();
     const air = new Air();
