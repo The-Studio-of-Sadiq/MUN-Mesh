@@ -159,6 +159,12 @@ export function kick(node: MeshNode, scope: string, sub: B64): Event<'revoke'> {
   return node.publish(scope, 'revoke', { sub, from });
 }
 
-export const lock = (node: MeshNode, com: string, on: boolean) => node.publish(com, 'lock', { on });
+/** Locks or unlocks the channel from each delegate's next message on (by what this device has seen of them). */
+export function lock(node: MeshNode, com: string, on: boolean): Event<'lock'> {
+  const store = node.replica.store;
+  const from: Record<B64, number> = {};
+  for (const author of Object.keys(store.summary(com))) from[author] = store.maxSeq(com, author) + 1;
+  return node.publish(com, 'lock', { on, from });
+}
 export const slowMode = (node: MeshNode, com: string, sec: number) => node.publish(com, 'slow', { sec });
 export const pin = (node: MeshNode, scope: string, ev: B64, on = true) => node.publish(scope, 'pin', { ev, on });

@@ -48,6 +48,7 @@ export function ChitQueue({ view }: { view: ScopeView }) {
       <Text style={styles.muted}>
         {pending.length ? `${pending.length} waiting · A approves, R rejects the top one` : 'No chits waiting.'}
       </Text>
+      <Text style={styles.muted}>An approval is final; a rejection can be changed to an approval.</Text>
       {pending.map((c, i) => {
         const l = line(c);
         return (
@@ -78,6 +79,7 @@ export function ChitQueue({ view }: { view: ScopeView }) {
               <Text style={styles.small}>
                 {l.from} → {l.to}
               </Text>
+              {c.status === 'rejected' ? <Btn title="Approve instead" variant="outline" onPress={() => approve(c)} /> : null}
             </Row>
             <Text style={styles.muted} numberOfLines={1}>
               {l.text}

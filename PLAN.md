@@ -228,12 +228,11 @@ Known limits, for M1:
 - **Sync summaries are heavy:** 695 MB of the 1.7 GB total, mostly hub↔hub
   summaries of every scope every 20 s. Send only scopes that changed, or a hash
   first. Duplicate floods (1 GB of `ev`) can drop with "have/want" for large batches.
-- **Lock and slow mode rely on timestamps,** so a modified app with a backdated
-  clock could slip a post in. Hubs should also refuse posts that arrive during a lock.
-- **Kicked devices stay linked** and can still read the public channel. Hubs should
-  drop links to revoked devices.
-- **Conflicting EB decisions:** when two EB members decide one chit at once, the
-  first by time wins, but a losing approval still carries a usable key.
+- ~~Lock relies on timestamps~~ → fixed in M3 (sequence numbers). Slow mode
+  still uses timestamps: the app enforces it, but a modified app could space its
+  timestamps out.
+- ~~Kicked devices stay linked~~ → fixed in M3 (cut off and refused).
+- ~~Conflicting EB chit decisions~~ → fixed in M3 (approval wins).
 - **The simulator** counts a phone→router→hub hop as one airtime use.
 
 ## M1 status: built, verified on Windows (2026-10-23)
@@ -314,6 +313,42 @@ Not verified yet:
     console reach the phones. 20 steps in all.
 
 Not verified: picking and saving files on a real phone (document picker, share sheet).
+
+## M3 status: built and verified (2026-10-23)
+
+Moderation that holds against a misbehaving device, across hops and reconnects:
+
+- **Removed devices are cut off.**
+  - When a revocation arrives, every device sends the removed device a `bye` and
+    drops the link (sockets now close gracefully, so the revocation and `bye`
+    arrive first), and turns it away if it reconnects.
+  - The removed device shows "You've been removed".
+  - The Secretariat can remove EB laptops from its roster; EBs remove delegates
+    and observers.
+- **Devices waiting for approval** get only certs, revocations and conference
+  announcements, and no files. The moment a device receives its own cert it asks
+  its neighbours for everything else.
+- **Locks use per-delegate sequence numbers,** like mutes, so a backdated
+  post can't slip through. Delegates who join during a lock are covered from
+  their first post.
+- **Chits:** any approval wins (once the key is out, "rejected" would be a promise
+  the system can't keep). The queue offers "Approve instead" on rejected chits;
+  approvals are final.
+- **Verified:**
+  - 46 tests, including:
+    - a kicked device over real TCP, refused on every redial;
+    - a pending device that gets only announcements until approved, then the history;
+    - a backdated post during a lock;
+    - approval overturning a rejection.
+  - Harness at 503 devices: all 29 checks pass; steady delivery p50 17 ms, p99 142 ms.
+  - `npm run e2e`, now 23 steps on the real Windows app: a lock from the
+    console, removing a delegate (cut off, hears nothing more), and the Secretariat
+    removing an EB laptop.
+
+Still open:
+- **Slow mode** can be dodged by a modified app (above).
+- **Spam:** a member flooding valid posts is only limited by mute/remove, not by
+  relays.
 
 ## Open questions
 

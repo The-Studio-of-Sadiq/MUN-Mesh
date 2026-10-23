@@ -59,6 +59,7 @@ function check(step: string, ok: boolean, detail?: string) {
 const HELPERS = `globalThis.__t ??= {
   buttons(text) { return [...document.querySelectorAll('[role=button]')].filter((e) => e.innerText.trim() === text); },
   click(text, i = 0) { const b = this.buttons(text)[i]; if (!b) throw new Error('no button: ' + text); b.click(); return true; },
+  clickStarting(text) { const b = [...document.querySelectorAll('[role=button]')].find((e) => e.innerText.trim().startsWith(text)); if (!b) throw new Error('no button: ' + text); b.click(); return true; },
   fill(placeholder, value) {
     const el = [...document.querySelectorAll('input,textarea')].find((e) => e.placeholder === placeholder);
     if (!el) throw new Error('no field: ' + placeholder);
@@ -344,6 +345,34 @@ async function main() {
     await waitFor('missed message after restart', async () => (await reopened.text()).includes('Posted while the chair was restarting.'), 30_000);
     check('the chair’s laptop keeps its history across a restart and catches up', true);
     await reopened.shot('7-eb-after-restart.png');
+
+    // 11. Moderation through the console, across hops: lock, remove a delegate, remove an EB laptop.
+    await reopened.click('Lock channel');
+    await waitFor('France sees the lock', () => scopeView(france.node.replica, 'disec').locked);
+    post(france.node, 'disec', 'Talking during the lock');
+    await waitFor('locked post hidden on the console', async () => (await reopened.text()).toLowerCase().includes('hidden: sent while locked'));
+    check('a lock from the console hides posts made during it', !scopeView(kenya.node.replica, 'disec').posts.some((p) => p.b.text === 'Talking during the lock'));
+    await reopened.click('Locked — unlock');
+    await waitFor('unlocked', () => !scopeView(france.node.replica, 'disec').locked);
+
+    // Roster rows also hold badges (EB, MUTED), so match the start of their text.
+    await reopened.eval(`__t.clickStarting('Peru')`);
+    await reopened.click('Remove…');
+    await reopened.click('Confirm: remove device');
+    await waitFor('Peru learns it was removed', () => peru.node.replica.auth.isRemoved(peru.node.key));
+    await sleep(2000);
+    const afterKick = post(france.node, 'disec', 'Said after Peru was removed');
+    await sleep(3000);
+    check('a removed delegate is cut off and hears nothing more', !peru.node.replica.store.has(afterKick.id) && peru.node.neighbours().length === 0);
+
+    await sec.click('UNSC — Security Council');
+    await waitFor('UNSC chair in the Secretariat roster', async () => (await sec.text()).includes('UNSC Chair'));
+    await sec.eval(`__t.clickStarting('UNSC Chair')`);
+    await sec.click('Remove…');
+    await sec.click('Confirm: remove device');
+    await waitFor('the UNSC laptop shows it was removed', async () => (await ebUnsc.text()).includes('You’ve been removed'), 30_000);
+    await ebUnsc.shot('9-eb-removed.png');
+    check('the Secretariat removes an EB laptop from its console', true);
   } catch (e) {
     check('run completed', false, e instanceof Error ? e.message : String(e));
     for (const p of pages) await p.shot(`failure-${p.name}.png`).catch(() => {});

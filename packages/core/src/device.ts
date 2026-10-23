@@ -51,7 +51,10 @@ export function attachSocket(node: MeshNode, id: string, socket: SocketLike, onC
       if (!closed) socket.write(`${JSON.stringify(msg)}\n`);
     },
     close: () => {
-      socket.destroy();
+      // End rather than destroy, so a last message (a bye, a revocation) still
+      // goes out; destroy a moment later in case the other side never closes.
+      socket.end();
+      setTimeout(() => socket.destroy(), 1000);
       finish();
     },
   };

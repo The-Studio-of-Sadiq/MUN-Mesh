@@ -266,6 +266,25 @@ describe('moderation view', () => {
     expect(view.muted).toEqual([]);
   });
 
+  it('keeps a lock in force against a backdated post', () => {
+    const { t, eb, france, share } = committee();
+    t.clock.t += 1000;
+    const p1 = share(post(france.node, 'disec', 'before'));
+    t.clock.t += 1000;
+    share(lock(eb.node, 'disec', true));
+    // A modified app signs a post during the lock with a timestamp from before it.
+    const backdated = createEvent(nobleCrypto, france.node.replica.confId, france.identity, {
+      s: 'disec', n: p1.n + 1, h: { t: p1.h.t + 1, c: 0 }, k: 'post', b: { text: 'sneaky' },
+    });
+    share(backdated);
+    t.clock.t += 1000;
+    share(lock(eb.node, 'disec', false));
+    const p3 = share(post(france.node, 'disec', 'after'));
+    const view = scopeView(eb.node.replica, 'disec');
+    expect(view.posts.map((p) => p.id)).toEqual([p1.id, p3.id]);
+    expect(view.hidden).toEqual([{ event: backdated, why: 'locked' }]);
+  });
+
   it('applies lock and slow mode to delegates but not the EB', () => {
     const { t, eb, france, share } = committee();
     t.clock.t += 1000;
@@ -315,14 +334,20 @@ describe('moderation view', () => {
     expect(readChit(usa.node, approved)?.text).toBe('Would you support clause 4?');
     expect(readChit(outsider.node, scopeView(outsider.node.replica, 'disec').chits[0]!)).toBeNull();
 
-    // A rejected chit stays unreadable to its recipient; a second decision changes nothing.
+    // A rejected chit stays unreadable to its recipient...
     const second = share(sendChit(usa.node, 'disec', france.node.key, 'No.'));
     share(rejectChit(eb.node, second as Event<'chit'>));
-    const late = approveChit(eb.node, second as Event<'chit'>);
-    if (typeof late !== 'string') share(late);
     const rejected = scopeView(france.node.replica, 'disec').chits.find((c) => c.chit.id === second.id)!;
     expect(rejected.status).toBe('rejected');
     expect(readChit(france.node, rejected)).toBeNull();
+    // ...until an EB member approves it after all: approval wins (its key is out), and can't be taken back.
+    const late = approveChit(eb.node, second as Event<'chit'>);
+    if (typeof late === 'string') throw new Error(late);
+    share(late);
+    share(rejectChit(eb.node, second as Event<'chit'>));
+    const overturned = scopeView(france.node.replica, 'disec').chits.find((c) => c.chit.id === second.id)!;
+    expect(overturned.status).toBe('approved');
+    expect(readChit(france.node, overturned)?.text).toBe('No.');
   });
 
   it('lets the EB read every delegate thread; other delegates cannot', () => {

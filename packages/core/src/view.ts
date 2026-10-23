@@ -35,9 +35,10 @@ const byTime = (x: Event, y: Event) => compareHlc(x.h, y.h) || (x.id < y.id ? -1
 /**
  * What a scope looks like, worked out from its events alone, so every device
  * with the same events shows the same thing. Moderation is ordered two ways:
- * - mutes, kicks and forks by the author's own sequence numbers, which
- *   they can't fake (the EB records the number they had reached);
- * - locks and slow mode by timestamp, as they apply to everyone at once.
+ * - mutes, locks, kicks and forks by the author's own sequence numbers,
+ *   which they can't fake (the EB records the number each had reached);
+ * - slow mode by timestamp (the app enforces it; a modified app could space
+ *   its timestamps out, so it's a courtesy rather than a guarantee).
  */
 export function scopeView(replica: Replica, scope: string): ScopeView {
   const events = replica.store.events(scope).sort(byTime);
@@ -63,9 +64,13 @@ export function scopeView(replica: Replica, scope: string): ScopeView {
     return muted;
   };
   const locks = live(of('lock'));
-  const lockedAt = (h: Hlc): boolean => {
+  /** The latest lock or unlock (in timestamp order) that covers this post decides. */
+  const lockedAt = (author: B64, seq: number, h: Hlc): boolean => {
     let on = false;
-    for (const l of locks) if (compareHlc(l.h, h) < 0) on = l.b.on;
+    for (const l of locks) {
+      const covers = l.b.from ? seq >= (l.b.from[author] ?? 1) : compareHlc(l.h, h) < 0;
+      if (covers) on = l.b.on;
+    }
     return on;
   };
   const slows = live(of('slow'));
@@ -87,7 +92,7 @@ export function scopeView(replica: Replica, scope: string): ScopeView {
     let why = gone(e);
     const restricted = ordinary(auth.memberAt(e.a, e.h));
     if (!why && restricted && mutedAt(e.a, e.n)) why = 'muted';
-    if (!why && restricted && lockedAt(e.h)) why = 'locked';
+    if (!why && restricted && lockedAt(e.a, e.n, e.h)) why = 'locked';
     if (!why && restricted) {
       const sec = slowAt(e.h);
       const prev = lastPost.get(e.a);
@@ -105,9 +110,13 @@ export function scopeView(replica: Replica, scope: string): ScopeView {
   const pins = new Map<B64, boolean>();
   for (const p of live(of('pin'))) pins.set(p.b.ev, p.b.on);
 
+  // Any approval wins, whenever it was made: once the key is out, the chit
+  // can be read, so "rejected" would be a promise the system couldn't keep.
+  // A rejection can still be overturned by a later approval.
   const decisions = new Map<B64, Event<'chitOk'> | Event<'chitNo'>>();
   for (const d of live([...of('chitOk'), ...of('chitNo')]).sort(byTime)) {
-    if (!decisions.has(d.b.chit)) decisions.set(d.b.chit, d);
+    const current = decisions.get(d.b.chit);
+    if (!current || (current.k === 'chitNo' && d.k === 'chitOk')) decisions.set(d.b.chit, d);
   }
   const chits: ChitState[] = live(of('chit')).map((chit) => {
     const decision = decisions.get(chit.id);

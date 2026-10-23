@@ -66,6 +66,17 @@ export interface RevokeBody {
   from: Record<string, number>;
 }
 
+/**
+ * Lock or unlock the committee channel for delegates. `from`: per delegate,
+ * the first sequence number it applies to (what the EB had seen of them, plus
+ * one), so a delegate can't dodge it by backdating a post. Delegates not listed
+ * are covered from their first post. Locks without `from` fall back to timestamps.
+ */
+export interface LockBody {
+  on: boolean;
+  from?: Record<B64, number>;
+}
+
 /** `from`: first sequence number (in this committee's scope) the change applies to. */
 export interface MuteBody {
   sub: B64;
@@ -154,7 +165,7 @@ export interface Bodies {
   revoke: RevokeBody;
   mute: MuteBody;
   unmute: MuteBody;
-  lock: { on: boolean };
+  lock: LockBody;
   /** Seconds between a delegate's posts; 0 turns it off. */
   slow: { sec: number };
   pin: { ev: B64; on: boolean };

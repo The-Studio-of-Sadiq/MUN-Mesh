@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { certFor, issueCert, post } from './actions';
+import { certFor, issueCert, kick, post } from './actions';
 import { newConference, publicKeys } from './conference';
 import { createIdentity, type Identity } from './crypto';
 import { createNodeCrypto } from './crypto/node';
@@ -56,21 +56,28 @@ async function hub(c: ReturnType<typeof conference>, com: string, transport = lo
 
 const has = (d: Device, e: Event) => d.node.replica.store.has(e.id);
 
+/** An approved device: certified by the Secretariat, holding its own cert. */
+async function member(c: ReturnType<typeof conference>, subs: string[] | typeof ALL, name: string, com = 'disec', role: 'delegate' | 'eb' = 'delegate') {
+  const id = createIdentity();
+  const d = await c.device(id, subs, { listen: false });
+  d.node.accept([issueCert(c.sec, certFor(publicKeys(id), role, name, com))]);
+  return d;
+}
+
 describe('line framing', () => {
   function fakeSocket() {
     const handlers: Record<string, ((a?: unknown) => void)[]> = { data: [], close: [], error: [] };
     const written: string[] = [];
-    let destroyed = false;
+    let ended = false;
     const socket: SocketLike = {
       write: (d) => void written.push(d),
-      end: () => {},
-      destroy: () => {
-        destroyed = true;
-        handlers.close!.forEach((h) => h());
+      end: () => {
+        ended = true;
       },
+      destroy: () => handlers.close!.forEach((h) => h()),
       on: ((event: string, cb: (a?: unknown) => void) => void handlers[event]!.push(cb)) as SocketLike['on'],
     };
-    return { socket, written, emit: (d: string) => handlers.data!.forEach((h) => h(d)), destroyed: () => destroyed };
+    return { socket, written, emit: (d: string) => handlers.data!.forEach((h) => h(d)), ended: () => ended };
   }
 
   it('reassembles messages split across chunks and cuts off garbage', () => {
@@ -85,7 +92,7 @@ describe('line framing', () => {
     f.emit(`${peer.slice(10)}\n{"t":"sum","s":{}}\n`);
     expect(n.neighbours()).toHaveLength(1);
     f.emit('not json\n');
-    expect(f.destroyed()).toBe(true);
+    expect(f.ended()).toBe(true);
     expect(n.neighbours()).toHaveLength(0);
   });
 });
@@ -116,10 +123,11 @@ describe('devices over TCP', () => {
     // Hubs that don't advertise addresses, so nothing but the bridge links the rooms.
     const roomA = await hub(c, 'disec', hidden);
     const roomB = await hub(c, 'unsc', hidden);
-    const bridge = await c.device(createIdentity(), ALL, { listen: false });
+    // A delegate's laptop on both rooms' Wi-Fi.
+    const bridge = await member(c, ALL, 'Bridge laptop');
     bridge.addAddress(c.addr(roomA), 'beacon');
     bridge.addAddress(c.addr(roomB), 'beacon');
-    const phoneA = await c.device(createIdentity(), ['disec'], { listen: false });
+    const phoneA = await member(c, ['disec'], 'France');
     phoneA.addAddress(c.addr(roomA), 'invite');
     await waitFor(() => roomA.node.neighbours().length === 2 && roomB.node.neighbours().length === 1);
 
@@ -151,7 +159,7 @@ describe('devices over TCP', () => {
     cochair.node.accept(chair.node.replica.store.events('global'));
     cochair.node.accept([issueCert(c.sec, certFor(publicKeys(cochairId), 'eb', 'co-chair', 'disec'))]);
     chair.addAddress(c.addr(cochair), 'beacon');
-    const phone = await c.device(createIdentity(), ['disec'], { listen: false, maxOutbound: 2 });
+    const phone = await member(c, ['disec'], 'France');
     phone.addAddress(c.addr(chair), 'invite');
     // The chair's hello lists its own addresses; the phone keeps them for reconnecting.
     await waitFor(() => phone.node.neighbours().length === 1);
@@ -166,5 +174,42 @@ describe('devices over TCP', () => {
     cleanups.push(() => restarted.stop());
     const missed = post(restarted.node, 'disec', 'Back online');
     await waitFor(() => has(phone, missed), 10_000);
+  });
+
+  it('cuts off a removed device, and refuses it when it comes back', async () => {
+    const c = conference();
+    const chair = await hub(c, 'disec');
+    const rogue = await member(c, ['disec'], 'Rogue');
+    const france = await member(c, ['disec'], 'France');
+    for (const d of [rogue, france]) d.addAddress(c.addr(chair), 'invite');
+    await waitFor(() => chair.node.neighbours().length === 2);
+
+    kick(chair.node, 'disec', rogue.node.key);
+    await waitFor(() => chair.node.neighbours().length === 1 && rogue.node.neighbours().length === 0);
+    // It keeps redialling; every attempt is turned away, and it hears nothing new.
+    const after = post(france.node, 'disec', 'Said after the kick');
+    await new Promise((r) => setTimeout(r, 3000));
+    expect(has(rogue, after)).toBe(false);
+    expect(chair.node.neighbours().map((n) => n.node)).toEqual([france.node.key]);
+    // It was told why, so its app can say so.
+    expect(rogue.node.replica.auth.isRemoved(rogue.node.key)).toBe(true);
+  });
+
+  it('gives a device waiting for approval only announcements, then the history once approved', async () => {
+    const c = conference();
+    const chair = await hub(c, 'disec');
+    const before = post(chair.node, 'disec', 'Committee business');
+    const notice = c.sec.publish('global', 'announce', { text: 'Welcome to the conference' });
+    chair.node.accept([notice]);
+    const newcomer = await c.device(createIdentity(), ['disec'], { listen: false });
+    newcomer.addAddress(c.addr(chair), 'invite');
+    newcomer.node.requestJoin({ name: 'Peru', role: 'delegate', com: 'disec' });
+    await waitFor(() => has(newcomer, notice) && chair.node.pendingJoins().length === 1);
+    await new Promise((r) => setTimeout(r, 500));
+    expect(has(newcomer, before)).toBe(false);
+
+    const req = chair.node.pendingJoins()[0]!;
+    issueCert(chair.node, certFor({ sign: req.sign, box: req.box }, 'delegate', req.name, req.com));
+    await waitFor(() => has(newcomer, before), 3000);
   });
 });

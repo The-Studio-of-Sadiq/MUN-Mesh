@@ -20,7 +20,7 @@ export type FileWire =
   | { t: 'nochunk'; c: B64[]; soon?: boolean };
 
 /** Reasons travel as codes so each device can show them in its own language. */
-export type ByeReason = 'versionMismatch' | 'wrongConference';
+export type ByeReason = 'versionMismatch' | 'wrongConference' | 'removed';
 
 /**
  * Messages between two linked devices. The same on every transport: TCP on a
@@ -235,6 +235,10 @@ export class MeshNode {
           return;
         }
         peer.node = msg.node;
+        if (this.replica.auth.isRemoved(msg.node)) {
+          this.cutOff(id, peer);
+          return;
+        }
         peer.subs = msg.subs === ALL ? ALL : Array.isArray(msg.subs) ? msg.subs.filter((s) => typeof s === 'string') : [];
         peer.addrs = Array.isArray(msg.addrs) ? msg.addrs.filter(isHostPort).slice(0, 16) : [];
         this.sendSummary(peer);
@@ -252,7 +256,7 @@ export class MeshNode {
           const theirs = msg.s[scope];
           missing.push(...this.replica.store.missing(scope, typeof theirs === 'object' && theirs ? theirs : {}));
         }
-        this.sendEvents(peer, missing);
+        this.sendEvents(peer, missing.filter((e) => this.allowed(peer, e)));
         return;
       }
       case 'ev': {
@@ -285,7 +289,8 @@ export class MeshNode {
       case 'want':
       case 'chunk':
       case 'nochunk':
-        if (!peer.subs) return;
+        // Files are for members only.
+        if (!peer.subs || !this.isMember(peer)) return;
         for (const l of this.wireListeners) l(id, msg);
         return;
       case 'bye':
@@ -313,6 +318,7 @@ export class MeshNode {
     if (result.status !== 'stored') throw new PublishRefused(result.reason ?? 'notAllowed');
     for (const stored of result.stored) for (const l of this.listeners) l(stored, null);
     this.forward(result.stored, null);
+    this.afterStore(result.stored);
     return e;
   }
 
@@ -339,7 +345,39 @@ export class MeshNode {
     }
     this.forward(stored, from);
     if (forks.length) this.broadcast({ t: 'fork', f: forks }, null);
+    this.afterStore(stored);
     return stored;
+  }
+
+  /** Acts on membership changes: cuts off removed devices; on our own approval, catches up at once. */
+  private afterStore(stored: Event[]): void {
+    let approved = false;
+    for (const e of stored) {
+      if (e.k === 'revoke') {
+        for (const [id, peer] of this.peers) if (peer.node && this.replica.auth.isRemoved(peer.node)) this.cutOff(id, peer);
+      } else if (e.k === 'cert' && (e as Event<'cert'>).b.sub === this.key) approved = true;
+    }
+    // Neighbours held back everything but certs and announcements until now; ask for the rest.
+    if (approved) for (const peer of this.peers.values()) if (peer.subs) this.sendSummary(peer);
+  }
+
+  private isMember(peer: Peer): boolean {
+    return !!peer.node && this.replica.auth.roles(peer.node).length > 0 && !this.replica.auth.isRemoved(peer.node);
+  }
+
+  /**
+   * What a neighbour may receive. Devices still waiting for approval get only
+   * certs, revocations and conference announcements: enough to learn they're
+   * in, not the committee's conversation.
+   */
+  private allowed(peer: Peer, e: Event): boolean {
+    return this.isMember(peer) || e.k === 'cert' || e.k === 'revoke' || e.s === GLOBAL;
+  }
+
+  private cutOff(id: string, peer: Peer): void {
+    peer.link.send({ t: 'bye', reason: 'removed' });
+    peer.link.close();
+    this.disconnect(id);
   }
 
   private sendSummary(peer: Peer): void {
@@ -358,7 +396,7 @@ export class MeshNode {
     for (const [id, peer] of this.peers) {
       if (id === from || !peer.subs) continue;
       const subs = peer.subs;
-      const wanted = subs === ALL ? events : events.filter((e) => subs.includes(e.s));
+      const wanted = events.filter((e) => (subs === ALL || subs.includes(e.s)) && this.allowed(peer, e));
       this.sendEvents(peer, wanted);
     }
   }

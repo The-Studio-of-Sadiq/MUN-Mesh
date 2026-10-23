@@ -89,6 +89,14 @@ export class Authority {
     this.revocations.set(e.b.sub, list);
   }
 
+  /** Whether this device has been removed: some revocation in reach of it exists. */
+  isRemoved(key: B64): boolean {
+    const list = this.revocations.get(key);
+    if (!list || key === this.root.key) return false;
+    const certs = this.certs.get(key) ?? [];
+    return list.some((r) => r.byCom === null || certs.some((m) => m.com === r.byCom && (m.role === 'delegate' || m.role === 'observer')));
+  }
+
   /**
    * Whether the author's event at this sequence number is cut off by a
    * revocation. An EB's revocation only reaches its own committee's

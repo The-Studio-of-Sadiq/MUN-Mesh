@@ -8,7 +8,7 @@ import { ConsoleScreen } from './src/screens/ConsoleScreen';
 import { CreateConferenceScreen } from './src/screens/CreateConferenceScreen';
 import { DelegateScreen } from './src/screens/DelegateScreen';
 import { JoinScreen } from './src/screens/JoinScreen';
-import { WaitingScreen } from './src/screens/WaitingScreen';
+import { RemovedScreen, WaitingScreen } from './src/screens/WaitingScreen';
 import { WelcomeScreen } from './src/screens/WelcomeScreen';
 import { AppSession } from './src/session';
 import { ThemeProvider, useBrandFonts, useTheme } from './src/theme';
@@ -74,6 +74,7 @@ function Main({ onLeave }: { onLeave: () => void }) {
   const session = useSession();
   const me = session.me();
   if (!me) return <WaitingScreen onLeave={onLeave} />;
+  if (session.node.replica.auth.isRemoved(me.key)) return <RemovedScreen onLeave={onLeave} />;
   if (me.role === 'eb' || me.role === 'secretariat') return <ConsoleScreen onLeave={onLeave} />;
   return <DelegateScreen onLeave={onLeave} />;
 }

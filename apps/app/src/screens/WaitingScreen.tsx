@@ -4,6 +4,27 @@ import { useSession } from '../hooks';
 import { useTheme } from '../theme';
 import { Btn, Card, Row, Status } from '../ui';
 
+/** After the EB (or Secretariat) removed this device: every device now refuses its links and messages. */
+export function RemovedScreen(props: { onLeave: () => void }) {
+  const { styles } = useTheme();
+  const session = useSession();
+  return (
+    <ScrollView contentContainerStyle={styles.container}>
+      <Text style={styles.eyebrow}>{session.profile.conf.name}</Text>
+      <Text style={styles.h1}>You’ve been removed</Text>
+      <Card>
+        <Text style={styles.text}>
+          This device was removed from the conference. It can no longer send or receive messages. If you think this is a mistake, speak to{' '}
+          {session.me()?.role === 'eb' ? 'the Secretariat' : 'your EB'}.
+        </Text>
+        <Row>
+          <Btn title="Leave and start over" variant="outline" onPress={props.onLeave} />
+        </Row>
+      </Card>
+    </ScrollView>
+  );
+}
+
 /** Until a cert for this device arrives. */
 export function WaitingScreen(props: { onLeave: () => void }) {
   const { styles } = useTheme();

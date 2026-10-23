@@ -182,12 +182,18 @@ export function runConferenceScenario(o: ScenarioOptions): Report {
   const counts: Record<string, number> = {};
   let refused = 0;
   const latencies: number[] = [];
-  /** Deliveries unaffected by the planned failures: neither end dropped off, and not during the partition. */
+  /**
+   * Deliveries unaffected by the planned failures: neither end dropped off,
+   * not during the partition, and the recipient already approved (devices
+   * waiting for approval are sent the committee's messages only once in).
+   */
   const steady: number[] = [];
+  const approvedAt = new Map<string, number>();
   const disturbed = new Set<string>();
   let lastStore = 0;
   for (const p of people.values()) {
     p.node.onEvent((e, from) => {
+      if (e.k === 'cert' && (e as Event<'cert'>).b.sub === p.node.key && !approvedAt.has(p.name)) approvedAt.set(p.name, sim.now);
       if (from === null) return;
       lastStore = sim.now;
       const c = created.get(e.id);
@@ -195,7 +201,8 @@ export function runConferenceScenario(o: ScenarioOptions): Report {
       latencies.push(sim.now - c.at);
       const author = authorName.get(e.a);
       const inPartition = c.at >= T * 0.3 && c.at <= T * 0.6;
-      if (!inPartition && !disturbed.has(p.name) && author && !disturbed.has(author)) steady.push(sim.now - c.at);
+      const member = (approvedAt.get(p.name) ?? Infinity) <= c.at || p.name.startsWith('sec0');
+      if (!inPartition && member && !disturbed.has(p.name) && author && !disturbed.has(author)) steady.push(sim.now - c.at);
     });
   }
   const authorName = new Map([...people.values()].map((p) => [p.node.key, p.name]));

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
-import { kick, mute, unmute, type B64, type Member, type ScopeView } from '@mun/core';
+import { GLOBAL, kick, mute, unmute, type B64, type Member, type ScopeView } from '@mun/core';
 import { useSession } from '../hooks';
 import { useTheme } from '../theme';
 import { Badge, Btn, Empty, Row } from '../ui';
@@ -16,9 +16,12 @@ export function Roster(props: { com: string; view: ScopeView; onMessage: (key: B
   const members = auth
     .all()
     .filter((m) => m.com === props.com && (m.role === 'delegate' || m.role === 'observer' || m.role === 'eb'))
-    .filter((m) => !auth.isRevoked(m.key, props.com, session.node.replica.store.maxSeq(props.com, m.key) + 1))
+    .filter((m) => !auth.isRemoved(m.key))
     .sort((a, b) => (a.role === 'eb' ? -1 : 0) - (b.role === 'eb' ? -1 : 0) || a.name.localeCompare(b.name));
   const muted = new Set(props.view.muted);
+  // EBs remove delegates and observers; only the Secretariat removes an EB laptop.
+  const secretariat = session.me()?.role === 'secretariat';
+  const removable = (m: Member) => m.role !== 'eb' || secretariat;
 
   const actions = (m: Member) => (
     <Row style={{ paddingLeft: 8, paddingBottom: 6 }}>
@@ -30,13 +33,13 @@ export function Roster(props: { com: string; view: ScopeView; onMessage: (key: B
         )
       ) : null}
       {m.role === 'delegate' ? <Btn title="Message" onPress={() => props.onMessage(m.key)} /> : null}
-      {m.role !== 'eb' ? (
+      {removable(m) ? (
         confirmKick === m.key ? (
           <Btn
             title="Confirm: remove device"
             variant="outline"
             onPress={() => {
-              kick(session.node, props.com, m.key);
+              kick(session.node, m.role === 'eb' ? GLOBAL : props.com, m.key);
               setConfirmKick(null);
               setOpen(null);
             }}

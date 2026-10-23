@@ -140,7 +140,10 @@ export function validBody(kind: Kind, b: unknown): boolean {
     case 'unmute':
       return isKey(b.sub) && isSeq(b.from);
     case 'lock':
-      return typeof b.on === 'boolean';
+      return (
+        typeof b.on === 'boolean' &&
+        (b.from === undefined || (isObj(b.from) && Object.keys(b.from).length <= 1000 && Object.entries(b.from).every(([k, n]) => isKey(k) && isSeq(n))))
+      );
     case 'slow':
       return Number.isSafeInteger(b.sec) && (b.sec as number) >= 0 && (b.sec as number) <= 3600;
     case 'pin':
