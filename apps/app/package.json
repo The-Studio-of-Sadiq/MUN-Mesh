@@ -20,6 +20,7 @@
     "expo": "~58.0.17",
     "expo-camera": "~58.0.12",
     "expo-clipboard": "~58.0.4",
+    "expo-dev-client": "~58.0.14",
     "expo-document-picker": "~58.0.4",
     "expo-file-system": "~58.0.10",
     "expo-font": "~58.0.9",
@@ -39,5 +40,14 @@
   "devDependencies": {
     "@types/react": "~19.3.0",
     "typescript": "~6.0.3"
+  },
+  "expo": {
+    "doctor": {
+      "reactNativeDirectoryCheck": {
+        "exclude": [
+          "react-native-tcp-socket"
+        ]
+      }
+    }
   }
 }

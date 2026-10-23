@@ -15,7 +15,11 @@
     },
     "android": {
       "package": "com.studioofsadiq.mun",
-      "permissions": ["android.permission.CAMERA", "android.permission.ACCESS_NETWORK_STATE", "android.permission.ACCESS_WIFI_STATE"]
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.ACCESS_WIFI_STATE"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -39,6 +43,12 @@
         }
       ]
     ],
-    "scheme": "mun"
+    "scheme": "mun",
+    "extra": {
+      "eas": {
+        "projectId": "42dcc911-b734-4af4-9099-9c84ce330c1a"
+      }
+    },
+    "owner": "princekhan"
   }
 }
