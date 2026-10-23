@@ -7,6 +7,7 @@ export * from './event';
 export * from './files';
 export * from './hlc';
 export * from './join';
+export * from './nearby';
 export * from './node';
 export * from './permissions';
 export * from './replica';

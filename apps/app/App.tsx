@@ -54,7 +54,7 @@ function Root() {
   else if (session) {
     body = (
       <SessionContext.Provider value={session}>
-        <Main onLeave={() => void leave()} />
+        <Main onLeave={() => void leave()} onReplace={setSession} />
       </SessionContext.Provider>
     );
   } else if (setup.name === 'create') body = <CreateConferenceScreen onCreated={setSession} onBack={() => setSetup({ name: 'welcome' })} />;
@@ -70,11 +70,11 @@ function Root() {
 }
 
 /** Waiting until approved, then the console for staff or the delegate app. */
-function Main({ onLeave }: { onLeave: () => void }) {
+function Main({ onLeave, onReplace }: { onLeave: () => void; onReplace: (s: AppSession) => void }) {
   const session = useSession();
   const me = session.me();
-  if (!me) return <WaitingScreen onLeave={onLeave} />;
+  if (!me) return <WaitingScreen onLeave={onLeave} onReplace={onReplace} />;
   if (session.node.replica.auth.isRemoved(me.key)) return <RemovedScreen onLeave={onLeave} />;
   if (me.role === 'eb' || me.role === 'secretariat') return <ConsoleScreen onLeave={onLeave} />;
-  return <DelegateScreen onLeave={onLeave} />;
+  return <DelegateScreen onLeave={onLeave} onReplace={onReplace} />;
 }

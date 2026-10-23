@@ -4,6 +4,7 @@ import {
   Device,
   FileManager,
   MeshNode,
+  NearbyRelay,
   checkFile,
   fileRules,
   certFor,
@@ -25,6 +26,7 @@ import {
   type StoredIdentity,
 } from '@mun/core';
 import { discovery } from './platform/discovery';
+import { nearby } from './platform/nearby';
 import { chunkStore, clearChunks, eventLog, kv } from './platform/storage';
 import { canHost, transport } from './platform/transport';
 
@@ -41,6 +43,8 @@ export interface Profile {
   hubs: string[];
   /** Keeps every scope and accepts connections: EB and Secretariat laptops, or a laptop bridging two networks. */
   hub: boolean;
+  /** A phone relaying for phones around it over Nearby (Android); keeps every scope so it can pass anything on. */
+  relay?: boolean;
 }
 
 /** One row of a committee roster the Secretariat handed the EB. */
@@ -106,6 +110,8 @@ export class AppSession {
   readonly node: MeshNode;
   readonly device: Device;
   readonly files: FileManager;
+  /** Phone-to-phone links, when this phone relays (Android only). */
+  readonly nearby: NearbyRelay | null;
   roster: RosterEntry[] = [];
   autoApprove = true;
   /** Requests the EB dismissed on this laptop; they stay hidden until the device asks again. */
@@ -122,7 +128,8 @@ export class AppSession {
     this.identity = identity;
     this.profile = profile;
     const hub = profile.hub && canHost;
-    this.node = new MeshNode({ conf: profile.conf, identity, subs: hub ? ALL : [profile.com!], now: Date.now });
+    const relay = !!profile.relay && !!nearby;
+    this.node = new MeshNode({ conf: profile.conf, identity, subs: hub || relay ? ALL : [profile.com!], now: Date.now });
     this.device = new Device({
       node: this.node,
       transport,
@@ -137,6 +144,7 @@ export class AppSession {
       now: Date.now,
       autoFetch: (att) => hub || att.size <= PHONE_AUTO_FETCH_BYTES,
     });
+    this.nearby = relay ? new NearbyRelay({ device: this.device, native: nearby!, confId: this.node.replica.confId }) : null;
   }
 
   /** Resumes the conference this device joined before, if any. */
@@ -196,6 +204,8 @@ export class AppSession {
     for (const h of this.profile.hubs) this.device.addAddress(h, 'invite');
     await this.device.start();
     await this.startDiscovery();
+    // A phone without permission (or Play services) just carries on without Nearby.
+    await this.nearby?.start().catch((e) => console.warn('Nearby unavailable', e));
     // Ask again on every start until let in (the request may have been lost while alone).
     if (!this.me()) this.node.requestJoin(this.joinFields());
     (globalThis as { munSession?: AppSession }).munSession = this;
@@ -212,6 +222,21 @@ export class AppSession {
     });
   }
 
+  /**
+   * Turns phone-to-phone relaying on or off. The node keeps different scopes
+   * either way, so this saves the choice and starts a fresh session.
+   */
+  async setRelay(on: boolean): Promise<AppSession> {
+    const profile: Profile = { ...this.profile, relay: on };
+    await kv.set(KEYS.profile, JSON.stringify(profile));
+    this.stop();
+    // The new session reads the log, so finish writing it first.
+    await Promise.all([this.flush(), this.nearby?.stop()]);
+    const next = new AppSession(this.identity, profile);
+    await next.start();
+    return next;
+  }
+
   /** Leaves the conference on this device: forgets its events, profile and keys. */
   async leave(): Promise<void> {
     this.stop();
@@ -219,6 +244,7 @@ export class AppSession {
   }
 
   stop(): void {
+    void this.nearby?.stop();
     if (this.fileTimer) clearInterval(this.fileTimer);
     this.stopBeacons();
     void discovery.stop();

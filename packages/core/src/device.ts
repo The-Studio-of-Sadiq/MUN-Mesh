@@ -251,6 +251,11 @@ export class Device {
     }
   }
 
+  /** Takes a link made some other way (Android Nearby) and treats it like any other. */
+  adopt(socket: SocketLike, inbound: boolean): void {
+    if (!this.stopped) this.attach(socket, inbound);
+  }
+
   private attach(socket: SocketLike, inbound: boolean, addr?: string): void {
     const id = `${inbound ? 'in' : 'out'}-${this.nextId++}`;
     const state = { id, socket, inbound, addr } as LinkState;

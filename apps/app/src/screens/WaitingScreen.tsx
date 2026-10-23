@@ -1,6 +1,8 @@
 import { ScrollView, Text } from 'react-native';
 import { keyFingerprint } from '@mun/core';
+import { RelayToggle } from '../components/RelayToggle';
 import { useSession } from '../hooks';
+import type { AppSession } from '../session';
 import { useTheme } from '../theme';
 import { Btn, Card, Row, Status } from '../ui';
 
@@ -26,7 +28,7 @@ export function RemovedScreen(props: { onLeave: () => void }) {
 }
 
 /** Until a cert for this device arrives. */
-export function WaitingScreen(props: { onLeave: () => void }) {
+export function WaitingScreen(props: { onLeave: () => void; onReplace: (s: AppSession) => void }) {
   const { styles } = useTheme();
   const session = useSession();
   const { profile } = session;
@@ -45,8 +47,11 @@ export function WaitingScreen(props: { onLeave: () => void }) {
         <Text style={styles.code}>{keyFingerprint(session.node.key)}</Text>
         <Status ok={links > 0} label={links > 0 ? `Connected to ${links} device${links > 1 ? 's' : ''}` : 'Looking for the network…'} />
         {links === 0 ? (
-          <Text style={styles.muted}>Make sure you’re on the committee room’s Wi-Fi. The request is sent as soon as a hub is in reach.</Text>
+          <Text style={styles.muted}>
+            Make sure you’re on the committee room’s Wi-Fi. Out of its range? Turn on relaying to reach the room through phones nearby.
+          </Text>
         ) : null}
+        <RelayToggle onReplace={props.onReplace} />
         <Row>
           <Btn title="Ask again" onPress={() => session.node.requestJoin(session.joinFields())} />
           <Btn title="Start over" variant="outline" onPress={props.onLeave} />

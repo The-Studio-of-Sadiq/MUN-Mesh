@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import { GLOBAL, post, readChit, sendChit, sendDm, type B64, type ChitState, type ScopeView } from '@mun/core';
 import { Channel, Composer, SealedList } from '../components/Messages';
+import { RelayToggle } from '../components/RelayToggle';
+import type { AppSession } from '../session';
 import { timeOf, useNow, useScope, useSession } from '../hooks';
 import { useTheme } from '../theme';
 import { Badge, Btn, Card, Chip, Empty, Field, Row, Status } from '../ui';
@@ -9,7 +11,7 @@ import { Badge, Btn, Card, Chip, Empty, Field, Row, Status } from '../ui';
 type Tab = 'committee' | 'chits' | 'chair' | 'global';
 
 /** A delegate's (or observer's) app: the committee channel, chits, a private line to the EB, and conference news. */
-export function DelegateScreen(props: { onLeave: () => void }) {
+export function DelegateScreen(props: { onLeave: () => void; onReplace: (s: AppSession) => void }) {
   const { colors, styles } = useTheme();
   const session = useSession();
   const me = session.me()!;
@@ -62,7 +64,8 @@ export function DelegateScreen(props: { onLeave: () => void }) {
           ) : null}
           {tab === 'global' && globalView ? <Channel view={globalView} empty="Announcements from the Secretariat appear here." /> : null}
         </View>
-        <View style={{ borderTopWidth: 1, borderColor: colors.border, paddingTop: 6 }}>
+        <View style={{ borderTopWidth: 1, borderColor: colors.border, paddingTop: 6, gap: 6 }}>
+          <RelayToggle onReplace={props.onReplace} />
           {confirmLeave ? (
             <Row>
               <Text style={styles.muted}>Leave and forget this conference on this device?</Text>

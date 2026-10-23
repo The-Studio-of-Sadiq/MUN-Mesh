@@ -50,6 +50,8 @@ interface Peer {
   subs?: string[] | typeof ALL;
   addrs: string[];
   lastSync: number;
+  /** Its last summary, to send what it lacks if it turns out to be a member. */
+  theirs?: Record<string, Summary>;
 }
 
 export interface PeerInfo {
@@ -251,12 +253,8 @@ export class MeshNode {
       }
       case 'sum': {
         if (!peer.subs || typeof msg.s !== 'object' || msg.s === null) return;
-        const missing: Event[] = [];
-        for (const scope of this.replica.sharedScopes(peer.subs)) {
-          const theirs = msg.s[scope];
-          missing.push(...this.replica.store.missing(scope, typeof theirs === 'object' && theirs ? theirs : {}));
-        }
-        this.sendEvents(peer, missing.filter((e) => this.allowed(peer, e)));
+        peer.theirs = msg.s;
+        this.sendMissing(peer);
         return;
       }
       case 'ev': {
@@ -355,10 +353,25 @@ export class MeshNode {
     for (const e of stored) {
       if (e.k === 'revoke') {
         for (const [id, peer] of this.peers) if (peer.node && this.replica.auth.isRemoved(peer.node)) this.cutOff(id, peer);
-      } else if (e.k === 'cert' && (e as Event<'cert'>).b.sub === this.key) approved = true;
+      } else if (e.k === 'cert') {
+        const sub = (e as Event<'cert'>).b.sub;
+        if (sub === this.key) approved = true;
+        // A neighbour we held back from turns out to be a member: send it what it lacks now.
+        for (const peer of this.peers.values()) if (peer.node === sub && peer.theirs) this.sendMissing(peer);
+      }
     }
     // Neighbours held back everything but certs and announcements until now; ask for the rest.
     if (approved) for (const peer of this.peers.values()) if (peer.subs) this.sendSummary(peer);
+  }
+
+  /** Sends a neighbour what its last summary says it lacks (and it may receive). */
+  private sendMissing(peer: Peer): void {
+    const missing: Event[] = [];
+    for (const scope of this.replica.sharedScopes(peer.subs!)) {
+      const theirs = peer.theirs?.[scope];
+      missing.push(...this.replica.store.missing(scope, typeof theirs === 'object' && theirs ? theirs : {}));
+    }
+    this.sendEvents(peer, missing.filter((e) => this.allowed(peer, e)));
   }
 
   private isMember(peer: Peer): boolean {
