@@ -17,7 +17,9 @@
     "desktop": "npm run start -w desktop",
     "desktop:dev": "npm run dev -w desktop",
     "postinstall": "node -e \"try{require.resolve('electron/install.js')&&require('electron/install.js')}catch{}\"",
-    "e2e": "npm run export:web -w app && node --no-warnings --import ./scripts/register-ts.mjs scripts/e2e.ts"
+    "e2e": "npm run export:web -w app && node --no-warnings --import ./scripts/register-ts.mjs scripts/e2e.ts",
+    "build:android:dev": "npm exec --yes -w app --package=eas-cli -- eas build -p android --profile development",
+    "build:android:preview": "npm exec --yes -w app --package=eas-cli -- eas build -p android --profile preview"
   },
   "type": "module"
 }
