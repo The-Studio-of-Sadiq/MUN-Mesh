@@ -10,6 +10,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import {
   Device,
+  FieldTestReporter,
   FileManager,
   MemoryChunkStore,
   MeshNode,
@@ -144,7 +145,12 @@ async function phone(invite: string, name: string, code?: string) {
   // Like the phone app: small files arrive by themselves, bigger ones on request.
   const files = new FileManager({ node, store: new MemoryChunkStore(), now: Date.now, autoFetch: (att) => att.size <= 2 * 1024 * 1024 });
   await files.start();
-  const timer = setInterval(() => files.tick(), 1000);
+  // Reports every 5 s here (60 s in the apps) so the field-test step is quick.
+  const reporter = new FieldTestReporter(node, { platform: 'bot', relay: false, links: () => ({ tcp: node.neighbours().length, nearby: 0 }), now: Date.now, everyMs: 5000 });
+  const timer = setInterval(() => {
+    files.tick();
+    reporter.tick();
+  }, 1000);
   for (const h of inv.hubs) device.addAddress(h, 'invite');
   await device.start();
   node.requestJoin({ name, role: 'delegate', com: inv.com!, ...(code ? { code } : {}) });
@@ -164,6 +170,13 @@ type Phone = Awaited<ReturnType<typeof phone>>;
 const member = (p: Phone) => p.node.replica.auth.roles(p.node.key).length > 0;
 const hasText = (p: Phone, scope: string, text: string) =>
   p.node.replica.store.events(scope).some((e) => (e as Event<'post'>).b.text === text);
+
+/** Pastes a roster ("code, name" per line) into an EB console's Join panel and imports it. */
+async function importRoster(page: Page, roster: string) {
+  await page.eval(`__t.click([...document.querySelectorAll('[role=button]')].map(e => e.innerText.trim()).find(t => t.startsWith('Join')))`);
+  await page.fill('FR-7Q2, France\nUS-K91, United States', roster);
+  await page.click('Import roster');
+}
 
 async function main() {
   rmSync(OUT, { recursive: true, force: true });
@@ -373,6 +386,34 @@ async function main() {
     await waitFor('the UNSC laptop shows it was removed', async () => (await ebUnsc.text()).includes('You’ve been removed'), 30_000);
     await ebUnsc.shot('9-eb-removed.png');
     check('the Secretariat removes an EB laptop from its console', true);
+
+    // 12. Field test from the Secretariat's console, and the load generator's bots joining by roster.
+    await sec.click('DISEC — Disarmament');
+    await sec.click('Field test');
+    await sec.click('Start a test');
+    await waitFor('reports from phones in the panel', async () => {
+      const text = await sec.text();
+      return text.includes('France · bot') && text.includes('Kenya · bot');
+    }, 40_000);
+    await sec.shot('10-field-test.png');
+    check('the field test panel shows phones’ reports', true);
+    await sec.click('Stop test');
+
+    await importRoster(reopened, [1, 2, 3, 4, 5].map((n) => `BOT-0${n}, Bot 0${n}`).join('\n'));
+    const botsInvite = await reopened.eval<string>(`munSession.invite('disec')`);
+    const bots = spawn(process.execPath, ['--no-warnings', '--import', './scripts/register-ts.mjs', 'scripts/bots.ts', '--invite', botsInvite, '--count', '5', '--every', '5'], {
+      cwd: ROOT,
+      stdio: 'ignore',
+    });
+    try {
+      await waitFor('five bots let in', async () => (await reopened.eval<number>(
+        `munSession.node.replica.auth.all().filter((m) => m.name.startsWith('Bot ')).length`,
+      )) === 5, 60_000);
+      await waitFor('bots chatting', async () => (await reopened.text()).includes('Bot 0'), 30_000);
+      check('the load generator’s bots join by roster and chat', true);
+    } finally {
+      bots.kill();
+    }
   } catch (e) {
     check('run completed', false, e instanceof Error ? e.message : String(e));
     for (const p of pages) await p.shot(`failure-${p.name}.png`).catch(() => {});

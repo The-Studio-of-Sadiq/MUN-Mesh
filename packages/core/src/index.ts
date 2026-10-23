@@ -4,6 +4,7 @@ export * from './conference';
 export * from './crypto';
 export * from './device';
 export * from './event';
+export * from './fieldtest';
 export * from './files';
 export * from './hlc';
 export * from './join';

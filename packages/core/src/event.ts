@@ -98,6 +98,7 @@ const isSealed = (v: unknown): v is Sealed =>
 
 const KINDS = new Set<string>([
   'cert', 'revoke', 'mute', 'unmute', 'lock', 'slow', 'pin', 'rules', 'post', 'announce', 'chit', 'chitOk', 'chitNo', 'dm', 'ebpost',
+  'ping', 'report',
 ]);
 
 function isEventShape(v: unknown): v is Event {
@@ -157,6 +158,25 @@ export function validBody(kind: Kind, b: unknown): boolean {
         b.block.length <= 50 &&
         b.block.every((x) => typeof x === 'string' && /^[a-z0-9]{1,10}$/.test(x))
       );
+    case 'ping':
+      return typeof b.test === 'string' && b.test.length > 0 && b.test.length <= 24 && Number.isSafeInteger(b.seq) && (b.seq as number) >= 0;
+    case 'report': {
+      const count = (v: unknown) => Number.isSafeInteger(v) && (v as number) >= 0 && (v as number) <= 1e9;
+      return (
+        typeof b.test === 'string' &&
+        b.test.length > 0 &&
+        b.test.length <= 24 &&
+        Array.isArray(b.got) &&
+        b.got.length <= 500 &&
+        b.got.every((g) => Array.isArray(g) && g.length === 2 && count(g[0]) && Number.isSafeInteger(g[1]) && Math.abs(g[1]) <= 86_400_000) &&
+        count(b.tcp) &&
+        count(b.nearby) &&
+        count(b.stored) &&
+        typeof b.platform === 'string' &&
+        b.platform.length <= 12 &&
+        typeof b.relay === 'boolean'
+      );
+    }
     case 'post':
     case 'announce':
       // A file's meta and chunk list come together; text may be empty only with a file.

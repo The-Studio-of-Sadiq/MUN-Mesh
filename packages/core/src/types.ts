@@ -133,6 +133,26 @@ export interface SealedContent {
   file?: FileMeta;
 }
 
+export interface PingBody {
+  /** Names the test run, so runs on the same day don't mix. */
+  test: string;
+  seq: number;
+}
+
+export interface ReportBody {
+  test: string;
+  /** Pings received since the last report: [seq, ms from sending to arrival, by this device's clock]. */
+  got: [number, number][];
+  /** Links right now, over the network and over Nearby. */
+  tcp: number;
+  nearby: number;
+  /** Events this device holds. */
+  stored: number;
+  /** "android", "ios", "windows" or "web". */
+  platform: string;
+  relay: boolean;
+}
+
 /** A committee's file rules, set by its EB. */
 export interface RulesBody {
   maxMB: number;
@@ -170,6 +190,10 @@ export interface Bodies {
   slow: { sec: number };
   pin: { ev: B64; on: boolean };
   rules: RulesBody;
+  /** Field test: a numbered ping from the Secretariat, every few seconds while a test runs. */
+  ping: PingBody;
+  /** Field test: what one device saw since its last report. */
+  report: ReportBody;
   post: PostBody;
   announce: PostBody;
   chit: ChitBody;

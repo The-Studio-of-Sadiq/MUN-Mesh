@@ -2,6 +2,8 @@ import {
   ALL,
   DEFAULT_PORT,
   Device,
+  FieldTestReporter,
+  FieldTestRunner,
   FileManager,
   MeshNode,
   NearbyRelay,
@@ -25,6 +27,7 @@ import {
   type Role,
   type StoredIdentity,
 } from '@mun/core';
+import { Platform } from 'react-native';
 import { discovery } from './platform/discovery';
 import { nearby } from './platform/nearby';
 import { chunkStore, clearChunks, eventLog, kv } from './platform/storage';
@@ -112,6 +115,9 @@ export class AppSession {
   readonly files: FileManager;
   /** Phone-to-phone links, when this phone relays (Android only). */
   readonly nearby: NearbyRelay | null;
+  /** Field tests: every device reports; the Secretariat runs them. */
+  readonly reporter: FieldTestReporter;
+  readonly fieldTest: FieldTestRunner;
   roster: RosterEntry[] = [];
   autoApprove = true;
   /** Requests the EB dismissed on this laptop; they stay hidden until the device asks again. */
@@ -145,6 +151,16 @@ export class AppSession {
       autoFetch: (att) => hub || att.size <= PHONE_AUTO_FETCH_BYTES,
     });
     this.nearby = relay ? new NearbyRelay({ device: this.device, native: nearby!, confId: this.node.replica.confId }) : null;
+    this.reporter = new FieldTestReporter(this.node, {
+      platform: canHost ? 'windows' : Platform.OS,
+      relay,
+      links: () => {
+        const viaNearby = this.nearby?.status().links ?? 0;
+        return { tcp: Math.max(0, this.node.neighbours().length - viaNearby), nearby: viaNearby };
+      },
+      now: Date.now,
+    });
+    this.fieldTest = new FieldTestRunner(this.node);
   }
 
   /** Resumes the conference this device joined before, if any. */
@@ -188,7 +204,10 @@ export class AppSession {
     this.node.restore(saved);
     await this.files.start();
     this.files.onProgress(() => this.changed());
-    this.fileTimer = setInterval(() => this.files.tick(), 1000);
+    this.fileTimer = setInterval(() => {
+      this.files.tick();
+      this.reporter.tick();
+    }, 1000);
 
     this.node.onEvent((e) => {
       this.logQueue.push(`${JSON.stringify(e)}\n`);
@@ -244,6 +263,7 @@ export class AppSession {
   }
 
   stop(): void {
+    this.fieldTest.stop();
     void this.nearby?.stop();
     if (this.fileTimer) clearInterval(this.fileTimer);
     this.stopBeacons();

@@ -169,5 +169,10 @@ export function authorize(auth: Authority, author: Member, e: Event): DenyReason
       return ok(moderator || (delegateHere && (e as Event<'dm'>).b.with === author.key));
     case 'ebpost':
       return ok(s === EB_SCOPE && (sec || author.role === 'eb'));
+    case 'ping':
+      return ok(s === GLOBAL && sec);
+    case 'report':
+      // Every member reports in its own committee; Secretariat devices conference-wide.
+      return ok(s === GLOBAL ? sec : committee !== null && author.com === committee);
   }
 }

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Pressable, Text, useWindowDimensions, View } from 'react-native';
 import { announce, ebPost, EB_SCOPE, fileRules, GLOBAL, lock, pin, post, setFileRules, slowMode, type B64, type Event } from '@mun/core';
 import { ChitQueue } from '../components/ChitQueue';
+import { FieldTestPanel } from '../components/FieldTestPanel';
 import { Channel, Composer, SealedList } from '../components/Messages';
 import { NetworkPanel } from '../components/NetworkPanel';
 import { Requests } from '../components/Requests';
@@ -12,7 +13,7 @@ import type { PickedFile } from '../session';
 import { useTheme } from '../theme';
 import { Badge, Btn, Chip, Field, Row, Status } from '../ui';
 
-type Panel = 'chits' | 'requests' | 'threads' | 'network';
+type Panel = 'chits' | 'requests' | 'threads' | 'network' | 'fieldtest';
 
 /**
  * The EB's laptop: channels and members on the left, the chat in the middle,
@@ -149,11 +150,13 @@ export function ConsoleScreen(props: { onLeave: () => void }) {
         <Chip label={`Join${requests ? ` (${requests})` : ''}`} active={panel === 'requests'} onPress={() => setPanel('requests')} />
         <Chip label={`Threads${waitingThreads ? ` (${waitingThreads})` : ''}`} active={panel === 'threads'} onPress={() => setPanel('threads')} />
         <Chip label="Network" active={panel === 'network'} onPress={() => setPanel('network')} />
+        {sec ? <Chip label="Field test" active={panel === 'fieldtest'} onPress={() => setPanel('fieldtest')} /> : null}
       </Row>
       {panel === 'chits' && view ? <ChitQueue view={view} /> : null}
       {panel === 'requests' ? <Requests com={sec ? (channel === com ? com : undefined) : me.com} /> : null}
       {panel === 'threads' && view && com ? <Threads com={com} view={view} open={thread} onOpen={setThread} /> : null}
       {panel === 'network' ? <NetworkPanel /> : null}
+      {panel === 'fieldtest' ? <FieldTestPanel /> : null}
     </View>
   );
 
