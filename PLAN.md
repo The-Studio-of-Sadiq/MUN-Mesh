@@ -210,6 +210,32 @@ The delegate app is phone-first: committee channel, chits, EB line, files.
 | M4 | Android Nearby Connections relay | A phone out of router range reaches the room through another phone |
 | M5 | Field test: ~50 real devices, then a mock conference | Delivery and latency numbers from a real venue |
 
+## M0 status: done (2026-10-23)
+
+`npm run harness` (10 committees × 48 delegates, 503 devices, 1,406 links,
+30 simulated minutes, seed 1) passes every check:
+
+- Every device holds every event of every scope it keeps. Every device in a
+  committee shows the same channel, chit statuses, mutes, locks and pins.
+- 776 approved chits readable by their recipients; 160 rejected ones stay sealed.
+- Muted, locked, kicked and forking devices are handled everywhere. The late
+  joiner receives the full history.
+- Latency while the network is up: p50 17 ms, p99 151 ms, max 0.5 s. Overall,
+  including devices that were offline or cut off: 92.8% under 1 s.
+- Everything settled 45 s after activity stopped. Runs in ~2.5 min of wall time.
+
+Known limits, for M1:
+- **Sync summaries are heavy:** 695 MB of the 1.7 GB total, mostly hub↔hub
+  summaries of every scope every 20 s. Send only scopes that changed, or a hash
+  first. Duplicate floods (1 GB of `ev`) can drop with "have/want" for large batches.
+- **Lock and slow mode rely on timestamps,** so a modified app with a backdated
+  clock could slip a post in. Hubs should also refuse posts that arrive during a lock.
+- **Kicked devices stay linked** and can still read the public channel. Hubs should
+  drop links to revoked devices.
+- **Conflicting EB decisions:** when two EB members decide one chit at once, the
+  first by time wins, but a losing approval still carries a usable key.
+- **The simulator** counts a phone→router→hub hop as one airtime use.
+
 ## Open questions
 
 Resolved: routers are available, one or more per room. iOS ships in v1:

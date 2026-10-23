@@ -5,7 +5,7 @@ An offline chat and file network for Model United Nations conferences of
 who aren't on the same network still get them. Each committee's Executive
 Board moderates from a laptop.
 
-Status: **M0, the core protocol**. No app yet. See [PLAN.md](PLAN.md) for the design
+Status: **M0 done**: core protocol, verified at 503 devices by the harness. No app yet. See [PLAN.md](PLAN.md) for the design
 and milestones.
 
 ## Try it
