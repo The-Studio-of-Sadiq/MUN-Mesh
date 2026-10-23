@@ -6,9 +6,9 @@ loads the JavaScript from your PC while you work on it.
 
 ## 1. Install the development build (once)
 
-1. On the phone, open the build page and tap **Install**. The first
-   development build (2026-10-23):
-   https://expo.dev/accounts/princekhan/projects/mun-toolkit/builds/68ed9584-a83a-408e-9514-c75ddf2b4e8f
+1. On the phone, open the build page and tap **Install**. The current
+   development build, with Nearby relay (2026-10-23):
+   https://expo.dev/accounts/princekhan/projects/mun-toolkit/builds/af639e15-be74-49ac-80cc-5568e6c5a8b8
    (all builds: https://expo.dev/accounts/princekhan/projects/mun-toolkit/builds)
    Allow "install unknown apps" for your browser if Android asks.
 2. Rebuild only when native code changes (a new native package, or app.json
@@ -63,6 +63,36 @@ QR code the terminal prints. JS changes reload on the phone as you save.
       and anything sent meanwhile arrives on the phone.
 - [ ] Close and reopen the app: history is still there and it reconnects.
 - [ ] Two phones in the same committee: a message from one reaches the other through the laptop.
+
+### Files (M2)
+
+- [ ] Attach a file in the committee chat; it appears on the console with a
+      **Save** button once the laptop has it.
+- [ ] A file under 2 MB from the console arrives on the phone by itself; a
+      bigger one shows **Download**, then a progress bar.
+- [ ] **Save** opens the share sheet; the file opens in another app.
+
+### Moderation (M3)
+
+- [ ] Remove the phone from the console's roster: the phone shows "You’ve been
+      removed" and gets nothing more.
+- [ ] Lock the channel: the phone's message box says so; a message forced
+      through anyway shows as hidden on the console.
+
+### Phone-to-phone relay (M4): needs two Android phones
+
+1. Phone **B** joins normally on the room's Wi-Fi, then turns on **Relay for
+   nearby phones** (allow Bluetooth and nearby devices).
+2. Phone **A** turns Wi-Fi **off** (or is out of the router's range), joins
+   with the invite, and turns on **Relay for nearby phones** on the waiting screen.
+3. Within a minute A should show "1 phone linked". Its join request reaches the
+   console through B; approve it.
+- [ ] A posts in the committee: it appears on the console.
+- [ ] The console posts: it appears on A.
+- [ ] A file from the console reaches A after tapping **Download**.
+- [ ] Walk A out of Bluetooth range and back: it relinks and catches up.
+
+Keep both apps open: Android pauses relaying in the background.
 
 Report anything odd with the phone's model and Android version.
 

@@ -5,7 +5,7 @@ An offline chat and file network for Model United Nations conferences of
 who aren't on the same network still get them. Each committee's Executive
 Board moderates from a laptop.
 
-Status: **M3**: core protocol (verified at 503 simulated devices), file sharing, moderation, plus the
+Status: **M4**: core protocol (verified at 503 simulated devices), file sharing, moderation, phone-to-phone relay (Android Nearby), plus the
 Windows app (EB console, Secretariat, delegates) and the phone app. See
 [PLAN.md](PLAN.md) for the design, milestones and what's verified.
 

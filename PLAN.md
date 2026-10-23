@@ -350,6 +350,35 @@ Still open:
 - **Spam:** a member flooding valid posts is only limited by mute/remove, not by
   relays.
 
+## M4 status: built; verified in tests, not yet on phones (2026-10-23)
+
+- **`core/nearby.ts`:** links phones of the same conference over Android Nearby
+  Connections and hands each link to `Device`, so relaying, sync, files and
+  moderation work over it unchanged.
+  - Text goes in numbered pieces under Nearby's 32 KB limit, reordered on arrival.
+  - Only the phone with the smaller key dials; up to 3 Nearby links per phone.
+  - Phones of another conference are ignored by name, before connecting.
+- **Native module** `apps/app/modules/nearby` (Kotlin, `play-services-nearby`
+  19.3, `P2P_CLUSTER`). It accepts connections automatically, since every
+  message is signed and checked anyway.
+- **App:** a "Relay for nearby phones" switch on the waiting screen (so a phone
+  out of range can ask to join through others) and the delegate screen.
+  - Relaying phones keep every committee's messages, so they can pass anything on.
+  - Bluetooth and nearby-devices permissions are asked for when it's switched on.
+- **Fix found by the tests:** a neighbour held back as unapproved now gets what
+  it lacks as soon as its cert arrives, rather than up to 20 s later.
+- **Verified:**
+  - 49 tests. Through a simulated radio (out-of-order delivery, a phone of
+    another conference nearby), a phone with no Wi-Fi posts to the room, receives
+    the chair's messages, and downloads a 600 KB file relayed by the phone next to it.
+  - The development build with the Kotlin module compiles on EAS. Windows e2e
+    still passes (23 steps).
+- **Not verified:** Nearby on real phones. TESTING.md has a two-phone checklist.
+- **Limits:**
+  - Relaying stops when Android puts the app in the background (an Android
+    foreground service would fix that).
+  - iPhones can't take part over Nearby; they use Wi-Fi only.
+
 ## Open questions
 
 Resolved: routers are available, one or more per room. iOS ships in v1:
