@@ -81,6 +81,8 @@ QR code the terminal prints. JS changes reload on the phone as you save.
 
 ### Phone-to-phone relay (M4): needs two Android phones
 
+0. On both phones turn on **Bluetooth** and **Location** (Nearby discovery needs
+   Location on many Android versions, though the app never reads it).
 1. Phone **B** joins normally on the room's Wi-Fi, then turns on **Relay for
    nearby phones** (allow Bluetooth and nearby devices).
 2. Phone **A** turns Wi-Fi **off** (or is out of the router's range), joins

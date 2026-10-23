@@ -350,7 +350,7 @@ Still open:
 - **Spam:** a member flooding valid posts is only limited by mute/remove, not by
   relays.
 
-## M4 status: built; verified in tests, not yet on phones (2026-10-23)
+## M4 status: built and verified on two Android phones (2026-10-23)
 
 - **`core/nearby.ts`:** links phones of the same conference over Android Nearby
   Connections and hands each link to `Device`, so relaying, sync, files and
@@ -373,7 +373,14 @@ Still open:
     the chair's messages, and downloads a 600 KB file relayed by the phone next to it.
   - The development build with the Kotlin module compiles on EAS. Windows e2e
     still passes (23 steps).
-- **Not verified:** Nearby on real phones. TESTING.md has a two-phone checklist.
+- **Field test (two Android phones + the Windows app):**
+  - Phone A was cut off from the router; it reached the room through phone B
+    over Nearby, and messages went between all three devices.
+  - The first attempt failed. Only the phone with the smaller key dialled, and
+    discovery turned out to be one-sided. Fix: the other phone dials after 5 s,
+    failed dials are retried, and the relay line shows Nearby's errors on screen.
+  - Location was turned on for the successful run. On many Android versions,
+    Nearby discovery needs it.
 - **Limits:**
   - Relaying stops when Android puts the app in the background (an Android
     foreground service would fix that).
