@@ -1,0 +1,14 @@
+{
+  "name": "mun-toolkit",
+  "private": true,
+  "description": "Offline multi-hop chat and file network for Model United Nations conferences",
+  "license": "MIT",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "npm run test -w @mun/core",
+    "typecheck": "npm run typecheck -w @mun/core",
+    "harness": "npm run harness -w @mun/core --"
+  }
+}

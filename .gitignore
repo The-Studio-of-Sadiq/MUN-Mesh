@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.expo/
+out/
+*.log
+.DS_Store
+harness-report*.json
