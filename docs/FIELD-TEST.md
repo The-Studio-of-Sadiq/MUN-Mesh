@@ -28,11 +28,15 @@ Also:
 
 ## Before the day
 
-- [ ] Install the Windows app on every laptop (`npm run dist -w desktop`, then
-      run the installer from `apps/desktop/release`), or run it from the repo
-      with `npm run desktop`.
-- [ ] Install the standalone APK on every phone (link from `npm run build:android:preview`).
-      It opens straight into the app; no PC needed.
+- [ ] Install the Windows app on every laptop: build it with `npm run dist -w desktop`,
+      then copy `apps/desktop/release/MUN Toolkit Setup 0.1.0.exe` (installer) or
+      `MUN Toolkit 0.1.0.exe` (portable, no install) to each laptop. It isn't
+      code-signed, so Windows SmartScreen warns: **More info → Run anyway**.
+- [ ] Install the standalone APK on every phone: open
+      https://expo.dev/accounts/princekhan/projects/mun-toolkit/builds/f7ec5bc3-eec0-4d16-9e01-f08199cb56b9
+      on the phone and tap Install (a newer one: `npm run build:android:preview`).
+      It opens straight into the app; no PC needed. It replaces the development
+      build (same app id), keeping nothing from it.
 - [ ] On every phone: Bluetooth on, Location on (Nearby needs it on many Android
       versions), battery saver off for MUN Toolkit.
 - [ ] Charge everything.

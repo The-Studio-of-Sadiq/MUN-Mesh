@@ -386,6 +386,30 @@ Still open:
     foreground service would fix that).
   - iPhones can't take part over Nearby; they use Wi-Fi only.
 
+## M5 status: ready for the field (2026-10-23)
+
+Everything needed to run the field test is built. The test itself happens at
+a venue: [docs/FIELD-TEST.md](docs/FIELD-TEST.md) is the runbook.
+
+- **Measurement built into the app:**
+  - The Secretariat's console has a **Field test** panel. It pings every device
+    every 10 s; each reports once a minute.
+  - The panel shows per device, per committee and overall: delivery, latency
+    p50/p95/max, and links over Wi-Fi and Nearby.
+  - Export as JSON.
+  - Outages show as latency, not loss, because devices catch up and report late
+    pings (tested in `fieldtest.test.ts`).
+- **Load generator:** `npm run bots -- --invite … --count 40` runs scripted
+  delegates on a laptop over the real network, joining by roster code.
+- **Standalone builds:**
+  - Android APK on EAS that opens straight into the app, no PC needed;
+  - Windows installer and portable exe from `npm run dist -w desktop`
+    (not code-signed yet).
+- **Verified:** 51 tests; `npm run e2e` is now 25 steps, including the field-test
+  panel with reports and 5 bots joining by roster and chatting.
+- **What M5 still needs:** the venue run. Done when the exported numbers and
+  notes come back and meet the runbook's pass criteria.
+
 ## Open questions
 
 Resolved: routers are available, one or more per room. iOS ships in v1:
