@@ -1,0 +1,26 @@
+{
+  "name": "desktop",
+  "productName": "MUN Toolkit",
+  "version": "0.1.0",
+  "private": true,
+  "main": "main.js",
+  "description": "MUN Toolkit for Windows: EB console, Secretariat and delegate app",
+  "author": "The Studio of Sadiq",
+  "scripts": {
+    "dev": "electron . --dev",
+    "start": "npm run export:web -w app && electron .",
+    "dist": "npm run export:web -w app && electron-builder --win --publish never"
+  },
+  "devDependencies": {
+    "electron": "^45.0.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.studioofsadiq.mun",
+    "productName": "MUN Toolkit",
+    "directories": { "output": "release" },
+    "files": ["main.js", "net.js", "discovery.js", "preload.js", "icon.png"],
+    "extraResources": [{ "from": "../app/dist", "to": "web" }],
+    "win": { "target": ["nsis", "portable"], "icon": "icon.png" }
+  }
+}

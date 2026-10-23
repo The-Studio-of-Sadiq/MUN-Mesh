@@ -5,16 +5,23 @@ An offline chat and file network for Model United Nations conferences of
 who aren't on the same network still get them. Each committee's Executive
 Board moderates from a laptop.
 
-Status: **M0 done**: core protocol, verified at 503 devices by the harness. No app yet. See [PLAN.md](PLAN.md) for the design
-and milestones.
+Status: **M1**: core protocol (verified at 503 simulated devices) plus the
+Windows app (EB console, Secretariat, delegates) and the phone app. See
+[PLAN.md](PLAN.md) for the design, milestones and what's verified.
 
 ## Try it
 
 ```bash
 npm install
-npm test          # unit, network and small-conference tests
+npm test          # unit, network, TCP and small-conference tests
 npm run harness   # full simulated conference: 10 committees × 48 delegates, 30 min
+npm run desktop   # the Windows app (builds the UI first)
+npm run e2e       # drives three Windows app instances plus scripted phones end to end
+npm run android   # the phone app (needs a dev build: it uses native TCP sockets)
 ```
+
+Run several Windows instances on one PC with `--profile=name`, e.g.
+`npx electron apps/desktop --profile=chair`.
 
 Harness options: `--committees 10 --delegates 48 --minutes 30 --seed 1 --json report.json`.
 

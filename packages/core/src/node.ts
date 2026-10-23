@@ -2,6 +2,7 @@ import { toB64, type B64 } from './bytes';
 import { nobleCrypto, type Crypto, type Identity } from './crypto';
 import { createEvent } from './event';
 import { HlcClock } from './hlc';
+import { checkJoinRequest, createJoinRequest, isHostPort, type JoinFields, type JoinRequest } from './join';
 import { authorizeAny } from './permissions';
 import { Replica, type Fork, type RejectReason } from './replica';
 import type { Summary } from './store';
@@ -17,11 +18,14 @@ export type ByeReason = 'versionMismatch' | 'wrongConference';
  * LAN, Android Nearby, or the simulator's in-memory links.
  */
 export type Wire =
-  | { t: 'hello'; v: number; conf: string; node: B64; subs: string[] | typeof ALL }
+  /** `addrs`: "host:port" where the sender accepts connections, so others can reach it directly too. */
+  | { t: 'hello'; v: number; conf: string; node: B64; subs: string[] | typeof ALL; addrs?: string[] }
   /** Per scope, what the sender holds; the receiver answers with what's missing. */
   | { t: 'sum'; s: Record<string, Summary> }
   | { t: 'ev'; e: Event[] }
   | { t: 'fork'; f: Fork[] }
+  /** Devices waiting to be let in; spread to everyone so the right EB sees them. */
+  | { t: 'join'; r: JoinRequest[] }
   | { t: 'bye'; reason: ByeReason };
 
 /** One connection to a neighbouring device. */
@@ -34,7 +38,14 @@ interface Peer {
   link: Link;
   node?: B64;
   subs?: string[] | typeof ALL;
+  addrs: string[];
   lastSync: number;
+}
+
+export interface PeerInfo {
+  id: string;
+  node: B64;
+  addrs: string[];
 }
 
 export interface NodeOptions {
@@ -62,6 +73,8 @@ export class PublishRefused extends Error {
 
 type EventListener = (e: Event, from: string | null) => void;
 
+const MAX_JOIN_REQUESTS = 2000;
+
 /**
  * One device in the mesh. Every node relays: a new event goes to every
  * neighbour that keeps its scope, and each neighbour does the same, so a
@@ -80,6 +93,11 @@ export class MeshNode {
   private readonly batch: number;
   private readonly peers = new Map<string, Peer>();
   private readonly listeners = new Set<EventListener>();
+  private readonly peerListeners = new Set<(peer: PeerInfo) => void>();
+  private readonly joinListeners = new Set<(r: JoinRequest) => void>();
+  /** Latest join request per device key. */
+  private readonly joins = new Map<B64, JoinRequest>();
+  private addresses: string[] = [];
 
   constructor(opts: NodeOptions) {
     const subs = opts.subs === ALL ? ALL : [...new Set([GLOBAL, ...opts.subs])];
@@ -97,15 +115,57 @@ export class MeshNode {
     return () => this.listeners.delete(listener);
   }
 
+  /** Called when a neighbour says hello (after a new link). */
+  onPeer(listener: (peer: PeerInfo) => void): () => void {
+    this.peerListeners.add(listener);
+    return () => this.peerListeners.delete(listener);
+  }
+
+  /** Called for each new or updated join request. */
+  onJoinRequest(listener: (r: JoinRequest) => void): () => void {
+    this.joinListeners.add(listener);
+    return () => this.joinListeners.delete(listener);
+  }
+
   /** Linked neighbours (that have said hello). */
-  neighbours(): { id: string; node: B64 }[] {
-    return [...this.peers].filter(([, p]) => p.node).map(([id, p]) => ({ id, node: p.node! }));
+  neighbours(): PeerInfo[] {
+    return [...this.peers].filter(([, p]) => p.node).map(([id, p]) => ({ id, node: p.node!, addrs: p.addrs }));
+  }
+
+  /** Where this device accepts connections ("host:port"); told to every neighbour. */
+  setAddresses(addrs: string[]): void {
+    this.addresses = addrs.filter(isHostPort);
   }
 
   connect(id: string, link: Link): void {
-    this.peers.set(id, { link, lastSync: this.now() });
+    this.peers.set(id, { link, addrs: [], lastSync: this.now() });
     const subs = this.replica.subs === ALL ? ALL : [...this.replica.subs];
-    link.send({ t: 'hello', v: PROTOCOL_VERSION, conf: this.replica.confId, node: this.key, subs });
+    const hello: Wire = { t: 'hello', v: PROTOCOL_VERSION, conf: this.replica.confId, node: this.key, subs };
+    if (this.addresses.length) hello.addrs = this.addresses;
+    link.send(hello);
+  }
+
+  /** Asks to be let in. The request spreads to every device until someone with authority issues a cert. */
+  requestJoin(fields: JoinFields): JoinRequest {
+    const r = createJoinRequest(this.replica.crypto, this.replica.confId, this.identity, fields, this.now());
+    this.joins.set(r.sign, r);
+    this.broadcast({ t: 'join', r: [r] }, null);
+    return r;
+  }
+
+  /** Join requests from devices that still have no cert, newest first. */
+  pendingJoins(): JoinRequest[] {
+    return [...this.joins.values()]
+      .filter((r) => this.replica.auth.roles(r.sign).length === 0)
+      .sort((a, b) => b.at - a.at);
+  }
+
+  /** Loads events this device stored earlier; they were checked when first received. */
+  restore(events: Event[]): void {
+    for (const e of events) {
+      const result = this.replica.ingest(e, true);
+      for (const stored of result.stored) this.clock.observe(stored.h);
+    }
   }
 
   disconnect(id: string): void {
@@ -133,9 +193,13 @@ export class MeshNode {
         }
         peer.node = msg.node;
         peer.subs = msg.subs === ALL ? ALL : Array.isArray(msg.subs) ? msg.subs.filter((s) => typeof s === 'string') : [];
+        peer.addrs = Array.isArray(msg.addrs) ? msg.addrs.filter(isHostPort).slice(0, 16) : [];
         this.sendSummary(peer);
         const forks = this.replica.allForks();
         if (forks.length) peer.link.send({ t: 'fork', f: forks });
+        const joins = this.pendingJoins();
+        if (joins.length) peer.link.send({ t: 'join', r: joins });
+        for (const l of this.peerListeners) l({ id, node: peer.node, addrs: peer.addrs });
         return;
       }
       case 'sum': {
@@ -157,6 +221,22 @@ export class MeshNode {
         if (!peer.subs || !Array.isArray(msg.f)) return;
         const fresh = msg.f.map((f) => this.replica.addFork(f)).filter((f): f is Fork => f !== null);
         if (fresh.length) this.broadcast({ t: 'fork', f: fresh }, id);
+        return;
+      }
+      case 'join': {
+        if (!peer.subs || !Array.isArray(msg.r)) return;
+        const fresh: JoinRequest[] = [];
+        for (const r of msg.r.slice(0, MAX_JOIN_REQUESTS)) {
+          const known = (r as JoinRequest | null)?.sign ? this.joins.get((r as JoinRequest).sign) : undefined;
+          if (known && known.at >= (r as JoinRequest).at) continue;
+          if (!checkJoinRequest(this.replica.crypto, this.replica.confId, r)) continue;
+          if (this.replica.auth.roles(r.sign).length > 0) continue;
+          if (this.joins.size >= MAX_JOIN_REQUESTS && !known) continue;
+          this.joins.set(r.sign, r);
+          fresh.push(r);
+        }
+        for (const r of fresh) for (const l of this.joinListeners) l(r);
+        if (fresh.length) this.broadcast({ t: 'join', r: fresh }, id);
         return;
       }
       case 'bye':

@@ -46,10 +46,48 @@ export function fromB64(text: B64): Bytes {
   return out;
 }
 
-const encoder = new TextEncoder();
-const decoder = new TextDecoder('utf-8', { fatal: true });
-export const utf8 = (text: string): Bytes => encoder.encode(text);
-export const fromUtf8 = (bytes: Bytes): string => decoder.decode(bytes);
+// Some phone JS engines lack TextDecoder (and older ones TextEncoder); fall back to plain code.
+const encoder = typeof TextEncoder === 'function' ? new TextEncoder() : null;
+const decoder = typeof TextDecoder === 'function' ? new TextDecoder('utf-8', { fatal: true }) : null;
+export const utf8 = (text: string): Bytes => (encoder ? encoder.encode(text) : encodeUtf8(text));
+export const fromUtf8 = (bytes: Bytes): string => (decoder ? decoder.decode(bytes) : decodeUtf8(bytes));
+
+function encodeUtf8(text: string): Bytes {
+  const out: number[] = [];
+  for (const ch of text) {
+    const c = ch.codePointAt(0)!;
+    if (c < 0x80) out.push(c);
+    else if (c < 0x800) out.push(0xc0 | (c >> 6), 0x80 | (c & 63));
+    else if (c < 0x10000) out.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
+    else out.push(0xf0 | (c >> 18), 0x80 | ((c >> 12) & 63), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
+  }
+  return Uint8Array.from(out);
+}
+
+/** Strict: throws on malformed input, like TextDecoder with `fatal`. */
+function decodeUtf8(bytes: Bytes): string {
+  let out = '';
+  for (let i = 0; i < bytes.length; ) {
+    const b = bytes[i]!;
+    const need = b < 0x80 ? 0 : b >= 0xf0 && b < 0xf5 ? 3 : b >= 0xe0 ? 2 : b >= 0xc2 && b < 0xe0 ? 1 : -1;
+    if (need < 0 || i + need >= bytes.length + (need === 0 ? 1 : 0)) throw new Error('bad utf-8');
+    let c = need === 0 ? b : b & (0x3f >> need);
+    for (let k = 1; k <= need; k++) {
+      const next = bytes[i + k]!;
+      if ((next & 0xc0) !== 0x80) throw new Error('bad utf-8');
+      c = (c << 6) | (next & 63);
+    }
+    if ((need === 2 && c < 0x800) || (need === 3 && (c < 0x10000 || c > 0x10ffff)) || (c >= 0xd800 && c <= 0xdfff)) {
+      throw new Error('bad utf-8');
+    }
+    out += String.fromCodePoint(c);
+    i += need + 1;
+  }
+  return out;
+}
+
+/** Exposed for tests of the fallback path. */
+export const _utf8Fallback = { encodeUtf8, decodeUtf8 };
 
 export function concat(...parts: Bytes[]): Bytes {
   const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));

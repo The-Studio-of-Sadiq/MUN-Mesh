@@ -236,6 +236,44 @@ Known limits, for M1:
   first by time wins, but a losing approval still carries a usable key.
 - **The simulator** counts a phone→router→hub hop as one airtime use.
 
+## M1 status: built, verified on Windows (2026-10-23)
+
+- **Core:**
+  - newline-delimited JSON over TCP (`device.ts`);
+  - a connection manager that listens, redials with back-off, learns hub
+    addresses from neighbours, and drops duplicate links;
+  - signed join requests that spread to whoever can approve them;
+  - invite codes for QR, and UDP hub beacons.
+- **One Expo app** (`apps/app`) for Android, iOS and Windows (via Electron):
+  - Secretariat creates the conference;
+  - join by QR or code, then wait for approval;
+  - **EB console** (three panes):
+    - channels and members (mute, remove, message);
+    - committee chat with lock, slow mode, pins and announcements;
+    - work queue: chits (A/R keys), join requests with invite QR and roster
+      auto-approval, private threads, network diagnostics;
+  - **delegate app:** committee, chits, chair thread, conference news.
+- **Electron shell** (`apps/desktop`): socket bridge, append-only event log, UDP discovery.
+- **Verified:** `npm run e2e` drives the real Windows app over the DevTools
+  protocol: Secretariat + two EB laptops + a laptop delegate, plus four scripted
+  phones over TCP. Twelve steps pass: create, approve staff, roster auto-approval,
+  manual approval, chat both ways, a chit approved with the A key, a mute, the EB
+  channel, a global announcement, a laptop delegate getting the history, and a
+  chair laptop restart that catches up through the Secretariat's hub.
+  `tcp.test.ts` covers two rooms joined only by a bridge laptop, over real sockets.
+
+Not verified yet:
+- **Phones.** Nothing has run on an Android or iOS device. The Android JS bundle
+  compiles, but TCP sockets, file storage and the camera on device need a dev
+  build (EAS) and a real-phone test.
+- **Two physical networks.** Bridging was tested on one machine. A real
+  bridge laptop with two adapters is part of the M5 field test.
+- **Not built yet:**
+  - Phones don't listen for UDP beacons, so they find hubs from the invite and
+    from hubs' hellos.
+  - English only.
+  - No file sending (M2).
+
 ## Open questions
 
 Resolved: routers are available, one or more per room. iOS ships in v1:

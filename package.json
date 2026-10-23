@@ -4,11 +4,20 @@
   "description": "Offline multi-hop chat and file network for Model United Nations conferences",
   "license": "MIT",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "apps/*"
   ],
   "scripts": {
     "test": "npm run test -w @mun/core",
-    "typecheck": "npm run typecheck -w @mun/core",
-    "harness": "npm run harness -w @mun/core --"
-  }
+    "typecheck": "npm run typecheck -w @mun/core -w app",
+    "harness": "npm run harness -w @mun/core --",
+    "app": "npm run start -w app",
+    "web": "npm run web -w app",
+    "android": "npm run android -w app",
+    "desktop": "npm run start -w desktop",
+    "desktop:dev": "npm run dev -w desktop",
+    "postinstall": "node -e \"try{require.resolve('electron/install.js')&&require('electron/install.js')}catch{}\"",
+    "e2e": "npm run export:web -w app && node --no-warnings --import ./scripts/register-ts.mjs scripts/e2e.ts"
+  },
+  "type": "module"
 }

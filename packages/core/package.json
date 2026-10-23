@@ -7,7 +7,7 @@
   "types": "src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./node": "./src/crypto/node.ts",
+    "./node": "./src/node-only.ts",
     "./sim": "./src/sim/index.ts"
   },
   "scripts": {

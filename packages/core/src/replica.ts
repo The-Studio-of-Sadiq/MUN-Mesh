@@ -74,10 +74,11 @@ export class Replica {
     return this.store.has(id) || this.rejected.has(id);
   }
 
-  ingest(raw: unknown): IngestResult {
+  /** `trusted`: events from this device's own storage, already checked once; skips the signature check. */
+  ingest(raw: unknown, trusted = false): IngestResult {
     const id = (raw as { id?: unknown } | null)?.id;
     if (typeof id === 'string' && this.seen(id)) return { status: 'duplicate', stored: [] };
-    const problem = checkEvent(this.crypto, this.confId, raw);
+    const problem = trusted ? null : checkEvent(this.crypto, this.confId, raw);
     if (problem) {
       if (typeof id === 'string') this.remember(id);
       return { status: 'rejected', reason: problem, stored: [] };

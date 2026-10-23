@@ -1,0 +1,44 @@
+{
+  "expo": {
+    "name": "MUN Toolkit",
+    "slug": "mun-toolkit",
+    "version": "0.1.0",
+    "orientation": "default",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.studioofsadiq.mun",
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "MUN Toolkit talks to the EB's laptop and other delegates on the venue Wi-Fi."
+      }
+    },
+    "android": {
+      "package": "com.studioofsadiq.mun",
+      "permissions": ["android.permission.CAMERA", "android.permission.ACCESS_NETWORK_STATE", "android.permission.ACCESS_WIFI_STATE"]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "output": "single"
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow $(PRODUCT_NAME) to scan join QR codes.",
+          "recordAudioAndroid": false
+        }
+      ],
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "imageWidth": 120,
+          "resizeMode": "contain",
+          "backgroundColor": "#000000"
+        }
+      ]
+    ],
+    "scheme": "mun"
+  }
+}

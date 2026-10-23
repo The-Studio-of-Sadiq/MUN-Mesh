@@ -16,7 +16,7 @@ import {
   slowMode,
   unmute,
 } from './actions';
-import { canonicalJson, fromB64, toB64, utf8 } from './bytes';
+import { _utf8Fallback, canonicalJson, fromB64, toB64, utf8 } from './bytes';
 import { createIdentity, loadIdentity, nobleCrypto, open, saveIdentity, seal } from './crypto';
 import { createNodeCrypto } from './crypto/node';
 import { checkEvent, createEvent } from './event';
@@ -34,6 +34,17 @@ describe('bytes', () => {
     }
     expect(toB64(utf8('hello?>'))).toBe(Buffer.from('hello?>').toString('base64url'));
     expect(() => fromB64('ab+c')).toThrow();
+  });
+
+  it('encodes UTF-8 the same without TextEncoder/TextDecoder', () => {
+    for (const text of ['', 'abc', 'Côte d’Ivoire', 'বাংলাদেশ', '🇺🇳 MUN', 'a\u0000b']) {
+      const native = new TextEncoder().encode(text);
+      expect(_utf8Fallback.encodeUtf8(text)).toEqual(native);
+      expect(_utf8Fallback.decodeUtf8(native)).toBe(text);
+    }
+    expect(() => _utf8Fallback.decodeUtf8(Uint8Array.from([0xc3]))).toThrow();
+    expect(() => _utf8Fallback.decodeUtf8(Uint8Array.from([0xe0, 0x80, 0x80]))).toThrow();
+    expect(() => _utf8Fallback.decodeUtf8(Uint8Array.from([0xed, 0xa0, 0x80]))).toThrow();
   });
 
   it('serialises objects the same whatever the key order', () => {
