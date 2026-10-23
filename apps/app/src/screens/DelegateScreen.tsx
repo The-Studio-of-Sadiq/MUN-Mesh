@@ -51,7 +51,13 @@ export function DelegateScreen(props: { onLeave: () => void }) {
             <>
               <Text style={styles.muted}>A private line to your committee’s EB.</Text>
               <SealedList events={view.dms.get(me.key) ?? []} empty="Ask the chair anything; only the EB sees this." />
-              {me.role === 'delegate' ? <Composer placeholder="Message the chair…" onSend={(t) => void sendDm(session.node, com, me.key, t)} /> : null}
+              {me.role === 'delegate' ? (
+                <Composer
+                  files
+                  placeholder="Message the chair…"
+                  onSend={async (t, f) => void sendDm(session.node, com, me.key, t, f ? await session.prepareFile(f, com) : undefined)}
+                />
+              ) : null}
             </>
           ) : null}
           {tab === 'global' && globalView ? <Channel view={globalView} empty="Announcements from the Secretariat appear here." /> : null}
@@ -94,7 +100,12 @@ function CommitteeTab({ com, view }: { com: string; view: ScopeView }) {
   return (
     <>
       <Channel view={view} empty="No messages yet." />
-      <Composer placeholder="Message the committee…" blocked={blocked} onSend={(t) => void post(session.node, com, t)} />
+      <Composer
+        files
+        placeholder="Message the committee…"
+        blocked={blocked}
+        onSend={async (t, f) => void post(session.node, com, t, { file: f ? await session.prepareFile(f, com) : undefined })}
+      />
     </>
   );
 }

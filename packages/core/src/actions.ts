@@ -2,7 +2,18 @@ import { fromB64, toB64, type B64 } from './bytes';
 import { contentKeyFor, open, openWithKey, seal, unwrapKey, wrapKey, type Sealed } from './crypto';
 import type { MeshNode } from './node';
 import type { Authority } from './permissions';
-import { EB_SCOPE, GLOBAL, type CertBody, type ChitContent, type Event, type Role } from './types';
+import {
+  EB_SCOPE,
+  GLOBAL,
+  type Attachment,
+  type CertBody,
+  type ChitContent,
+  type Event,
+  type FileMeta,
+  type Role,
+  type RulesBody,
+  type SealedContent,
+} from './types';
 import type { ChitState } from './view';
 
 // What the apps call. Each builds the event body (sealing it where needed)
@@ -18,10 +29,28 @@ export function certFor(device: { sign: B64; box: B64 }, role: Role, name: strin
   return { sub: device.sign, box: device.box, role, name, ...(com ? { com } : {}) };
 }
 
-export const post = (node: MeshNode, scope: string, text: string, re?: B64) =>
-  node.publish(scope, 'post', re ? { text, re } : { text });
+/** A file already encrypted and stored by `FileManager.addLocal`, plus its name and type. */
+export interface OutgoingFile {
+  att: Attachment;
+  key: B64;
+  name: string;
+  mime: string;
+}
 
-export const announce = (node: MeshNode, scope: string, text: string) => node.publish(scope, 'announce', { text });
+const fileMeta = (f: OutgoingFile): FileMeta => ({ name: f.name, mime: f.mime, key: f.key });
+
+export const post = (node: MeshNode, scope: string, text: string, opts: { re?: B64; file?: OutgoingFile } = {}) =>
+  node.publish(scope, 'post', {
+    text,
+    ...(opts.re ? { re: opts.re } : {}),
+    ...(opts.file ? { att: opts.file.att, file: fileMeta(opts.file) } : {}),
+  });
+
+export const announce = (node: MeshNode, scope: string, text: string, file?: OutgoingFile) =>
+  node.publish(scope, 'announce', { text, ...(file ? { att: file.att, file: fileMeta(file) } : {}) });
+
+/** EB: a committee's file size limit and blocked types. */
+export const setFileRules = (node: MeshNode, com: string, rules: RulesBody) => node.publish(com, 'rules', rules);
 
 /** Box keys of a committee's current EB, plus the Secretariat root. */
 export function moderatorBoxes(auth: Authority, com: string): B64[] {
@@ -69,26 +98,46 @@ export function readChit(node: MeshNode, state: ChitState): ChitContent | null {
   return key ? openWithKey<ChitContent>(state.chit.b.sealed, key) : null;
 }
 
-/** Delegate↔EB private message. `withKey` is the delegate's signing key (the thread). */
-export function sendDm(node: MeshNode, com: string, withKey: B64, text: string): Event<'dm'> {
+const sealedContent = (text: string, file?: OutgoingFile): SealedContent => ({ text, ...(file ? { file: fileMeta(file) } : {}) });
+
+/**
+ * Delegate↔EB private message. `withKey` is the delegate's signing key (the
+ * thread). A file's chunk list travels openly; its name and key are sealed.
+ */
+export function sendDm(node: MeshNode, com: string, withKey: B64, text: string, file?: OutgoingFile): Event<'dm'> {
   const auth = node.replica.auth;
   const delegate = auth.member(withKey);
   const boxes = moderatorBoxes(auth, com);
   if (delegate) boxes.push(delegate.box);
-  return node.publish(com, 'dm', { with: withKey, sealed: sealFor(node, { text }, boxes) });
+  return node.publish(com, 'dm', { with: withKey, sealed: sealFor(node, sealedContent(text, file), boxes), ...(file ? { att: file.att } : {}) });
 }
 
 /** EB-to-EB channel, sealed to every EB and Secretariat device known. */
-export function ebPost(node: MeshNode, text: string): Event<'ebpost'> {
+export function ebPost(node: MeshNode, text: string, file?: OutgoingFile): Event<'ebpost'> {
   const boxes = node.replica.auth
     .all()
     .filter((m) => m.role === 'eb' || m.role === 'secretariat')
     .map((m) => m.box);
-  return node.publish(EB_SCOPE, 'ebpost', { sealed: sealFor(node, { text }, boxes) });
+  return node.publish(EB_SCOPE, 'ebpost', { sealed: sealFor(node, sealedContent(text, file), boxes), ...(file ? { att: file.att } : {}) });
 }
 
-export const readSealed = <T = { text: string }>(node: MeshNode, e: Event<'dm' | 'ebpost'>): T | null =>
+export const readSealed = <T = SealedContent>(node: MeshNode, e: Event<'dm' | 'ebpost'>): T | null =>
   open<T>(e.b.sealed, node.identity.box);
+
+/** The name, type and key of an event's file, if this device may read it. */
+export function fileOf(node: MeshNode, e: Event): { att: Attachment; meta: FileMeta } | null {
+  const att = (e.b as { att?: Attachment }).att;
+  if (!att) return null;
+  if (e.k === 'post' || e.k === 'announce') {
+    const meta = (e.b as { file?: FileMeta }).file;
+    return meta ? { att, meta } : null;
+  }
+  if (e.k === 'dm' || e.k === 'ebpost') {
+    const meta = readSealed(node, e as Event<'dm' | 'ebpost'>)?.file;
+    return meta ? { att, meta } : null;
+  }
+  return null;
+}
 
 /** Mute from the delegate's next message on (by what this device has seen of them). */
 export const mute = (node: MeshNode, com: string, sub: B64) =>

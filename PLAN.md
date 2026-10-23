@@ -274,6 +274,47 @@ Not verified yet:
   - English only.
   - No file sending (M2).
 
+## M2 status: built, verified on Windows and in the simulator (2026-10-23)
+
+- **Files** (`packages/core/src/files.ts`):
+  - every file is encrypted with its own key and split into 256 KB chunks named by
+    their hash, so any device can check a chunk and relay it without reading it;
+  - public posts carry the key; private threads and the EB channel seal it.
+- **Transfer:**
+  - a device asks neighbours for chunks it lacks, hubs first, with a few requests
+    in flight per link and timeouts;
+  - a hub or bridge (or a phone, when another phone asks it) that knows the file
+    but lacks a chunk starts fetching it, answers "ask again soon", and pushes the
+    chunk to the asker when it arrives;
+  - nobody waits on anybody, so requests can't go round in circles. An earlier
+    version that waited on each other deadlocked between three hubs;
+    `files.test.ts` keeps that triangle as a regression test;
+  - chunks are stored one by one, so a broken download resumes.
+- **Who downloads what:** hubs fetch every file the rules allow. Phones fetch files
+  up to 2 MB by themselves; bigger ones on tap.
+- **Rules per committee** (EB console, "Files: up to … MB"): a size limit (25 MB by
+  default, up to 100) and blocked types. Every device refuses to fetch what the
+  rules forbid, and the app refuses to send it.
+- **UI:** Attach in every composer (committee, announcements, private threads, EB
+  channel); file cards with progress, Download and Save (a download on Windows,
+  the share sheet on phones).
+- **Verified:**
+  - Simulator: a 25 MB file crosses two hops (phone → hub → bridge → hub → phone),
+    with the last link pulled mid-transfer, and arrives byte for byte; both hubs keep
+    a copy.
+  - Also simulated:
+    - a file passing along a chain of three phones;
+    - a private file relayed by a delegate who can't open it;
+    - size and type limits;
+    - forged chunks rejected;
+    - the three-hub triangle.
+  - `npm run e2e`: on the real Windows app, a phone's 3 MB file is fetched by the
+    hub and shown in the console, and isn't pushed to other phones until asked. A
+    small file from the EB reaches phones by itself, and file rules set in the
+    console reach the phones. 20 steps in all.
+
+Not verified: picking and saving files on a real phone (document picker, share sheet).
+
 ## Open questions
 
 Resolved: routers are available, one or more per room. iOS ships in v1:

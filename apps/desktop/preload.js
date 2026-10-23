@@ -15,6 +15,14 @@ contextBridge.exposeInMainWorld('munLog', {
   clear: () => ipcRenderer.invoke('log:clear'),
 });
 
+// File chunks, one file each, named by their hash.
+contextBridge.exposeInMainWorld('munChunks', {
+  list: () => ipcRenderer.invoke('chunk:list'),
+  get: (id) => ipcRenderer.invoke('chunk:get', id),
+  put: (id, data) => ipcRenderer.invoke('chunk:put', id, data),
+  clear: () => ipcRenderer.invoke('chunk:clear'),
+});
+
 contextBridge.exposeInMainWorld('munNet', {
   listen: (port) => ipcRenderer.invoke('net:listen', port),
   unlisten: () => ipcRenderer.invoke('net:unlisten'),

@@ -21,7 +21,11 @@ export function Threads(props: { com: string; view: ScopeView; open: B64 | null;
           <Btn title="All threads" variant="outline" onPress={() => props.onOpen(null)} />
         </Row>
         <SealedList events={events} empty="No messages yet." />
-        <Composer placeholder="Reply privately…" onSend={(t) => void sendDm(session.node, props.com, props.open!, t)} />
+        <Composer
+          files
+          placeholder="Reply privately…"
+          onSend={async (t, f) => void sendDm(session.node, props.com, props.open!, t, f ? await session.prepareFile(f, props.com) : undefined)}
+        />
       </View>
     );
   }

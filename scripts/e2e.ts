@@ -10,7 +10,11 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import {
   Device,
+  FileManager,
+  MemoryChunkStore,
   MeshNode,
+  fileOf,
+  fileRules,
   createIdentity,
   parseInvite,
   post,
@@ -136,10 +140,24 @@ async function phone(invite: string, name: string, code?: string) {
   const inv = parseInvite(invite)!;
   const node = new MeshNode({ conf: inv.conf, identity: createIdentity(), subs: [inv.com!], now: Date.now, crypto });
   const device = new Device({ node, transport: nodeTransport, listenPort: null, maxOutbound: 3 });
+  // Like the phone app: small files arrive by themselves, bigger ones on request.
+  const files = new FileManager({ node, store: new MemoryChunkStore(), now: Date.now, autoFetch: (att) => att.size <= 2 * 1024 * 1024 });
+  await files.start();
+  const timer = setInterval(() => files.tick(), 1000);
   for (const h of inv.hubs) device.addAddress(h, 'invite');
   await device.start();
   node.requestJoin({ name, role: 'delegate', com: inv.com!, ...(code ? { code } : {}) });
-  return { node, device, com: inv.com!, name };
+  return { node, device, files, timer, com: inv.com!, name };
+}
+
+function testBytes(n: number, seed: number): Uint8Array {
+  const out = new Uint8Array(n);
+  let x = seed;
+  for (let i = 0; i < n; i++) {
+    x = (x * 1103515245 + 12345) >>> 0;
+    out[i] = x >>> 24;
+  }
+  return out;
 }
 type Phone = Awaited<ReturnType<typeof phone>>;
 const member = (p: Phone) => p.node.replica.auth.roles(p.node.key).length > 0;
@@ -276,7 +294,44 @@ async function main() {
     await delegatePage.shot('5-delegate-laptop.png');
     check('a laptop delegate joins and receives the history', true);
 
-    // 9. Restart the DISEC chair's laptop: its history survives and it reconnects.
+    // 9. Files: a phone shares a 3 MB file; the hub keeps it; another phone downloads it on request.
+    const paper = testBytes(3 * 1024 * 1024, 11);
+    const up = await france.files.addLocal(paper);
+    const filePost = post(france.node, 'disec', 'Our working paper', {
+      file: { ...up, name: 'working-paper.pdf', mime: 'application/pdf' },
+    });
+    await ebDisec.click('DISEC — Disarmament');
+    await waitFor('the EB laptop has the whole file', async () => (await ebDisec.eval<boolean>(`!!munSession.files.status('${up.att.id}')?.done`)), 60_000);
+    await waitFor('file card on the console', async () => (await ebDisec.text()).includes('working-paper.pdf'));
+    await ebDisec.shot('8-eb-file.png');
+    check('the hub fetched the file by itself and shows it in the chat', true);
+    await waitFor('Kenya sees the post', () => kenya.node.replica.store.has(filePost.id));
+    check('a 3 MB file isn’t pushed to phones uninvited', !kenya.files.status(up.att.id)!.wanted);
+    kenya.files.want(up.att.id);
+    await waitFor('Kenya downloads the file', () => kenya.files.status(up.att.id)?.done, 60_000);
+    const got = fileOf(kenya.node, kenya.node.replica.store.get(filePost.id)!)!;
+    const back = await kenya.files.read(got.att, got.meta);
+    check('the downloaded file matches byte for byte', !!back && Buffer.compare(back, paper) === 0);
+
+    // The EB attaches a file from the console's session; phones fetch small ones automatically.
+    const agendaId = await ebDisec.eval<string>(`(async () => {
+      const data = new Uint8Array(200000); for (let i = 0; i < data.length; i++) data[i] = i % 251;
+      const f = await munSession.prepareFile({ name: 'agenda.txt', mime: 'text/plain', data }, 'disec');
+      munSession.node.publish('disec', 'announce', { text: 'Today’s agenda', att: f.att, file: { name: f.name, mime: f.mime, key: f.key } });
+      return f.att.id;
+    })()`);
+    await waitFor('Peru receives the EB’s small file by itself', () => peru.files.status(agendaId)?.done, 60_000);
+    check('a small file from the EB reaches phones without a tap', true);
+
+    // File rules set from the console reach the phones.
+    await ebDisec.eval(`__t.click([...document.querySelectorAll('[role=button]')].map(e => e.innerText.trim()).find(t => t.startsWith('Files: up to')))`);
+    await ebDisec.fill('exe, apk, bat', 'exe, apk');
+    await ebDisec.eval(`(() => { const el = [...document.querySelectorAll('input')].find(e => e.value === '25'); const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; set.call(el, '1'); el.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+    await ebDisec.click('Save rules');
+    await waitFor('rules reach France', () => fileRules(france.node.replica, 'disec').maxMB === 1);
+    check('file rules from the console reach the phones', fileRules(france.node.replica, 'disec').block.join(',') === 'exe,apk');
+
+    // 10. Restart the DISEC chair's laptop: its history survives and it reconnects.
     await ebDisec.shot('4-eb-console.png');
     await sec.shot('6-secretariat-console.png');
     ebDisec.close();
@@ -293,7 +348,10 @@ async function main() {
     check('run completed', false, e instanceof Error ? e.message : String(e));
     for (const p of pages) await p.shot(`failure-${p.name}.png`).catch(() => {});
   } finally {
-    for (const p of phones) p.device.stop();
+    for (const p of phones) {
+      clearInterval(p.timer);
+      p.device.stop();
+    }
     for (const p of pages) p.close();
   }
   const failed = results.filter((r) => !r.ok).length;

@@ -145,6 +145,7 @@ export function authorize(auth: Authority, author: Member, e: Event): DenyReason
     case 'unmute':
     case 'lock':
     case 'slow':
+    case 'rules':
     case 'chitOk':
     case 'chitNo':
       return ok(moderator);

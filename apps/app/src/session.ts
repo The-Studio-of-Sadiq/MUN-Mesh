@@ -2,7 +2,10 @@ import {
   ALL,
   DEFAULT_PORT,
   Device,
+  FileManager,
   MeshNode,
+  checkFile,
+  fileRules,
   certFor,
   createIdentity,
   encodeBeacon,
@@ -14,13 +17,15 @@ import {
   type Conference,
   type Event,
   type Identity,
+  type FileRefusal,
   type JoinRequest,
   type Member,
+  type OutgoingFile,
   type Role,
   type StoredIdentity,
 } from '@mun/core';
 import { discovery } from './platform/discovery';
-import { eventLog, kv } from './platform/storage';
+import { chunkStore, clearChunks, eventLog, kv } from './platform/storage';
 import { canHost, transport } from './platform/transport';
 
 /** What this device is in the conference, chosen when it joined (or created it). */
@@ -45,6 +50,26 @@ export interface RosterEntry {
 }
 
 const KEYS = { identity: 'identity', profile: 'profile', roster: 'roster', autoApprove: 'autoApprove' };
+
+/** Phones download files up to this size by themselves; bigger ones on tap. */
+export const PHONE_AUTO_FETCH_BYTES = 2 * 1024 * 1024;
+
+/** A file picked on this device, before it's encrypted and sent. */
+export interface PickedFile {
+  name: string;
+  mime: string;
+  data: Uint8Array;
+}
+
+export class FileRefused extends Error {
+  readonly reason: FileRefusal;
+  readonly maxMB: number;
+  constructor(reason: FileRefusal, maxMB: number) {
+    super(reason === 'tooLarge' ? `Files in this committee can be up to ${maxMB} MB.` : 'This committee doesn’t accept that type of file.');
+    this.reason = reason;
+    this.maxMB = maxMB;
+  }
+}
 
 export async function loadOrCreateIdentity(): Promise<Identity> {
   const raw = await kv.get(KEYS.identity);
@@ -80,6 +105,7 @@ export class AppSession {
   readonly profile: Profile;
   readonly node: MeshNode;
   readonly device: Device;
+  readonly files: FileManager;
   roster: RosterEntry[] = [];
   autoApprove = true;
   /** Requests the EB dismissed on this laptop; they stay hidden until the device asks again. */
@@ -89,6 +115,7 @@ export class AppSession {
   private logQueue: string[] = [];
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private stopBeacons: () => void = () => {};
+  private fileTimer: ReturnType<typeof setInterval> | null = null;
   private started = false;
 
   private constructor(identity: Identity, profile: Profile) {
@@ -102,6 +129,13 @@ export class AppSession {
       listenPort: hub ? DEFAULT_PORT : null,
       // Hubs dial every hub they hear of; phones keep a couple of links.
       maxOutbound: hub ? 32 : 3,
+    });
+    // Hubs keep every file the rules allow, to serve the room; phones fetch small ones by themselves.
+    this.files = new FileManager({
+      node: this.node,
+      store: chunkStore,
+      now: Date.now,
+      autoFetch: (att) => hub || att.size <= PHONE_AUTO_FETCH_BYTES,
     });
   }
 
@@ -144,6 +178,9 @@ export class AppSession {
       }
     }
     this.node.restore(saved);
+    await this.files.start();
+    this.files.onProgress(() => this.changed());
+    this.fileTimer = setInterval(() => this.files.tick(), 1000);
 
     this.node.onEvent((e) => {
       this.logQueue.push(`${JSON.stringify(e)}\n`);
@@ -178,10 +215,11 @@ export class AppSession {
   /** Leaves the conference on this device: forgets its events, profile and keys. */
   async leave(): Promise<void> {
     this.stop();
-    await Promise.all([eventLog.clear(), kv.remove(KEYS.profile), kv.remove(KEYS.identity), kv.remove(KEYS.roster)]);
+    await Promise.all([eventLog.clear(), clearChunks(), kv.remove(KEYS.profile), kv.remove(KEYS.identity), kv.remove(KEYS.roster)]);
   }
 
   stop(): void {
+    if (this.fileTimer) clearInterval(this.fileTimer);
     this.stopBeacons();
     void discovery.stop();
     this.device.stop();
@@ -215,6 +253,20 @@ export class AppSession {
     for (const n of this.node.neighbours()) for (const a of n.addrs) hubs.add(a);
     for (const h of this.profile.hubs) hubs.add(h);
     return encodeInvite({ conf: this.profile.conf, com, hubs: [...hubs].slice(0, 8) });
+  }
+
+  // ── Files ──
+
+  /**
+   * Encrypts and stores a picked file, ready to attach. Throws `FileRefused`
+   * if the committee's rules don't allow it (the EB channel and global use the defaults).
+   */
+  async prepareFile(picked: PickedFile, scope: string): Promise<OutgoingFile> {
+    const rules = fileRules(this.node.replica, scope);
+    const refusal = checkFile(rules, picked.data.length, picked.name);
+    if (refusal) throw new FileRefused(refusal, rules.maxMB);
+    const { att, key } = await this.files.addLocal(picked.data);
+    return { att, key, name: picked.name, mime: picked.mime };
   }
 
   // ── Approving devices ──

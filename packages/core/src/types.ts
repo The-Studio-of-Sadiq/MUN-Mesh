@@ -72,14 +72,61 @@ export interface MuteBody {
   from: number;
 }
 
+// ── Files ──
+// A file is encrypted with its own random key and split into chunks named by
+// the hash of their ciphertext, so any device can check and relay a chunk
+// without reading it. The event carries the chunk list (`Attachment`); the
+// name, type and key (`FileMeta`) sit in the body of a public post, or inside
+// the sealed content of a private one.
+
+export const CHUNK_SIZE = 256 * 1024;
+/** Per-file limit unless a committee's EB sets another (up to the hard limit). */
+export const DEFAULT_MAX_FILE_MB = 25;
+export const HARD_MAX_FILE_MB = 100;
+
+export interface Attachment {
+  /** Hash of the size and chunk list; names the file everywhere. */
+  id: B64;
+  /** Bytes before encryption. */
+  size: number;
+  /** Chunk ids in order. */
+  chunks: B64[];
+}
+
+export interface FileMeta {
+  name: string;
+  /** MIME type, e.g. "application/pdf"; may be empty if unknown. */
+  mime: string;
+  /** The file key. */
+  key: B64;
+}
+
 export interface PostBody {
+  /** May be empty when the post is just a file. */
   text: string;
   /** Event id this replies to. */
   re?: string;
+  att?: Attachment;
+  file?: FileMeta;
 }
 
 export interface SealedBody {
   sealed: Sealed;
+  /** Chunk list of a file whose name and key are inside the sealed content (`SealedContent.file`). */
+  att?: Attachment;
+}
+
+/** What a sealed DM or EB message opens to. */
+export interface SealedContent {
+  text: string;
+  file?: FileMeta;
+}
+
+/** A committee's file rules, set by its EB. */
+export interface RulesBody {
+  maxMB: number;
+  /** Blocked file extensions, lower case without the dot, e.g. ["exe", "apk"]. */
+  block: string[];
 }
 
 /** Sealed to the committee's EB and the sender. Opens to `ChitContent`. */
@@ -96,7 +143,7 @@ export interface ChitOkBody {
   key: Wrapped;
 }
 
-/** Private thread between one delegate and the committee's EB. Opens to `{ text }`. */
+/** Private thread between one delegate and the committee's EB. Opens to `SealedContent`. */
 export interface DmBody extends SealedBody {
   /** The delegate's signing key (the thread). */
   with: B64;
@@ -111,13 +158,14 @@ export interface Bodies {
   /** Seconds between a delegate's posts; 0 turns it off. */
   slow: { sec: number };
   pin: { ev: B64; on: boolean };
+  rules: RulesBody;
   post: PostBody;
   announce: PostBody;
   chit: ChitBody;
   chitOk: ChitOkBody;
   chitNo: { chit: B64 };
   dm: DmBody;
-  /** EB-to-EB message, sealed to all EB and Secretariat devices. Opens to `{ text }`. */
+  /** EB-to-EB message, sealed to all EB and Secretariat devices. Opens to `SealedContent`. */
   ebpost: SealedBody;
 }
 

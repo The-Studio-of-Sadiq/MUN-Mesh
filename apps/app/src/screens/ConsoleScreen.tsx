@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Pressable, Text, useWindowDimensions, View } from 'react-native';
-import { announce, ebPost, EB_SCOPE, GLOBAL, lock, pin, post, slowMode, type B64, type Event } from '@mun/core';
+import { announce, ebPost, EB_SCOPE, fileRules, GLOBAL, lock, pin, post, setFileRules, slowMode, type B64, type Event } from '@mun/core';
 import { ChitQueue } from '../components/ChitQueue';
 import { Channel, Composer, SealedList } from '../components/Messages';
 import { NetworkPanel } from '../components/NetworkPanel';
@@ -8,8 +8,9 @@ import { Requests } from '../components/Requests';
 import { Roster } from '../components/Roster';
 import { Threads } from '../components/Threads';
 import { useScope, useSession } from '../hooks';
+import type { PickedFile } from '../session';
 import { useTheme } from '../theme';
-import { Badge, Btn, Chip, Row, Status } from '../ui';
+import { Badge, Btn, Chip, Field, Row, Status } from '../ui';
 
 type Panel = 'chits' | 'requests' | 'threads' | 'network';
 
@@ -33,6 +34,11 @@ export function ConsoleScreen(props: { onLeave: () => void }) {
   const [thread, setThread] = useState<B64 | null>(null);
   const [asAnnouncement, setAsAnnouncement] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
+  const [editRules, setEditRules] = useState(false);
+  const [maxMB, setMaxMB] = useState('');
+  const [blocked, setBlocked] = useState('');
+  /** Encrypts a picked file for `scope`; throws if the scope's rules refuse it. */
+  const prepare = (f: PickedFile | undefined, scope: string) => (f ? session.prepareFile(f, scope) : Promise.resolve(undefined));
   const wide = width >= 1100;
 
   const pendingChits = view?.chits.filter((c) => c.status === 'pending').length ?? 0;
@@ -62,7 +68,7 @@ export function ConsoleScreen(props: { onLeave: () => void }) {
       return (
         <>
           <SealedList events={events} empty="Messages between EBs and the Secretariat. Delegates never see these." />
-          <Composer placeholder="Message all EBs and the Secretariat…" onSend={(t) => void ebPost(session.node, t)} />
+          <Composer files placeholder="Message all EBs and the Secretariat…" onSend={async (t, f) => void ebPost(session.node, t, await prepare(f, EB_SCOPE))} />
         </>
       );
     }
@@ -70,11 +76,14 @@ export function ConsoleScreen(props: { onLeave: () => void }) {
       return (
         <>
           {globalView ? <Channel view={globalView} showHidden onPin={sec ? (id, on) => void pin(session.node, GLOBAL, id, on) : undefined} empty="Conference-wide announcements from the Secretariat." /> : null}
-          {sec ? <Composer placeholder="Announce to the whole conference…" sendLabel="Announce" onSend={(t) => void announce(session.node, GLOBAL, t)} /> : null}
+          {sec ? (
+            <Composer files placeholder="Announce to the whole conference…" sendLabel="Announce" onSend={async (t, f) => void announce(session.node, GLOBAL, t, await prepare(f, GLOBAL))} />
+          ) : null}
         </>
       );
     }
     if (!view || !com) return null;
+    const rules = fileRules(session.node.replica, com);
     return (
       <>
         <Row style={{ justifyContent: 'space-between' }}>
@@ -85,14 +94,48 @@ export function ConsoleScreen(props: { onLeave: () => void }) {
               active={view.slowSec > 0}
               onPress={() => void slowMode(session.node, com, view.slowSec ? 0 : 30)}
             />
+            <Chip
+              label={`Files: up to ${rules.maxMB} MB${rules.block.length ? ` · ${rules.block.length} blocked` : ''}`}
+              active={editRules}
+              onPress={() => {
+                setMaxMB(String(rules.maxMB));
+                setBlocked(rules.block.join(', '));
+                setEditRules(!editRules);
+              }}
+            />
           </Row>
           <Text style={styles.muted}>{view.posts.length} messages · {view.hidden.length} hidden</Text>
         </Row>
+        {editRules ? (
+          <Row style={{ alignItems: 'flex-end' }}>
+            <View style={{ width: 120 }}>
+              <Field label="Max size (MB)" value={maxMB} onChangeText={setMaxMB} keyboardType="number-pad" />
+            </View>
+            <View style={{ flex: 1, minWidth: 200 }}>
+              <Field label="Blocked types" value={blocked} onChangeText={setBlocked} placeholder="exe, apk, bat" autoCapitalize="none" />
+            </View>
+            <Btn
+              title="Save rules"
+              variant="primary"
+              disabled={!(Number(maxMB) >= 1 && Number(maxMB) <= 100)}
+              onPress={() => {
+                const block = [...new Set(blocked.toLowerCase().split(/[\s,.]+/).filter((x) => /^[a-z0-9]{1,10}$/.test(x)))].slice(0, 50);
+                setFileRules(session.node, com, { maxMB: Math.round(Number(maxMB)), block });
+                setEditRules(false);
+              }}
+            />
+          </Row>
+        ) : null}
         <Channel view={view} showHidden onPin={(id, on) => void pin(session.node, com, id, on)} empty="No messages yet. Share the invite QR to bring delegates in." />
         <Composer
           placeholder={asAnnouncement ? 'Announcement to the committee…' : 'Message the committee…'}
           sendLabel={asAnnouncement ? 'Announce' : 'Send'}
-          onSend={(t) => void (asAnnouncement ? announce(session.node, com, t) : post(session.node, com, t))}
+          files
+          onSend={async (t, f) => {
+            const file = await prepare(f, com);
+            if (asAnnouncement) announce(session.node, com, t, file);
+            else post(session.node, com, t, { file });
+          }}
           extra={<Chip label="Announce" active={asAnnouncement} onPress={() => setAsAnnouncement(!asAnnouncement)} />}
         />
       </>

@@ -1,7 +1,20 @@
 import { canonicalJson, fromB64, toB64, utf8, type B64 } from './bytes';
 import type { Crypto, Identity, Sealed, Wrapped } from './crypto';
 import type { Hlc } from './hlc';
-import { ALL, EB_SCOPE, GLOBAL, MAX_TEXT, type Bodies, type Conference, type Event, type Kind } from './types';
+import {
+  ALL,
+  CHUNK_SIZE,
+  EB_SCOPE,
+  GLOBAL,
+  HARD_MAX_FILE_MB,
+  MAX_TEXT,
+  type Attachment,
+  type Bodies,
+  type Conference,
+  type Event,
+  type FileMeta,
+  type Kind,
+} from './types';
 
 const KEY_CHARS = 43; // 32 bytes in base64url
 const ID_BYTES = 18;
@@ -69,11 +82,22 @@ const isId = (v: unknown): v is B64 => typeof v === 'string' && v.length === 24;
 const isSeq = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 1;
 const isText = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= MAX_TEXT;
 const isWrapped = (v: unknown): v is Wrapped => isObj(v) && isKey(v.to) && typeof v.w === 'string' && v.w.length < 200;
+const isAttachment = (v: unknown): v is Attachment =>
+  isObj(v) &&
+  isId(v.id) &&
+  Number.isSafeInteger(v.size) &&
+  (v.size as number) > 0 &&
+  (v.size as number) <= HARD_MAX_FILE_MB * 1024 * 1024 &&
+  Array.isArray(v.chunks) &&
+  v.chunks.length === Math.ceil((v.size as number) / CHUNK_SIZE) &&
+  v.chunks.every(isId);
+export const isFileMeta = (v: unknown): v is FileMeta =>
+  isObj(v) && typeof v.name === 'string' && v.name.length > 0 && v.name.length <= 200 && typeof v.mime === 'string' && v.mime.length <= 100 && isKey(v.key);
 const isSealed = (v: unknown): v is Sealed =>
   isObj(v) && Array.isArray(v.keys) && v.keys.length <= 200 && v.keys.every(isWrapped) && typeof v.ct === 'string';
 
 const KINDS = new Set<string>([
-  'cert', 'revoke', 'mute', 'unmute', 'lock', 'slow', 'pin', 'post', 'announce', 'chit', 'chitOk', 'chitNo', 'dm', 'ebpost',
+  'cert', 'revoke', 'mute', 'unmute', 'lock', 'slow', 'pin', 'rules', 'post', 'announce', 'chit', 'chitOk', 'chitNo', 'dm', 'ebpost',
 ]);
 
 function isEventShape(v: unknown): v is Event {
@@ -121,17 +145,30 @@ export function validBody(kind: Kind, b: unknown): boolean {
       return Number.isSafeInteger(b.sec) && (b.sec as number) >= 0 && (b.sec as number) <= 3600;
     case 'pin':
       return isId(b.ev) && typeof b.on === 'boolean';
+    case 'rules':
+      return (
+        Number.isSafeInteger(b.maxMB) &&
+        (b.maxMB as number) >= 1 &&
+        (b.maxMB as number) <= HARD_MAX_FILE_MB &&
+        Array.isArray(b.block) &&
+        b.block.length <= 50 &&
+        b.block.every((x) => typeof x === 'string' && /^[a-z0-9]{1,10}$/.test(x))
+      );
     case 'post':
     case 'announce':
-      return isText(b.text) && (b.re === undefined || isId(b.re));
+      // A file's meta and chunk list come together; text may be empty only with a file.
+      if ((b.att === undefined) !== (b.file === undefined)) return false;
+      if (b.att !== undefined && !(isAttachment(b.att) && isFileMeta(b.file))) return false;
+      return (isText(b.text) || (b.text === '' && b.att !== undefined)) && (b.re === undefined || isId(b.re));
     case 'chit':
-    case 'ebpost':
       return isSealed(b.sealed);
+    case 'ebpost':
+      return isSealed(b.sealed) && (b.att === undefined || isAttachment(b.att));
     case 'chitOk':
       return isId(b.chit) && isWrapped(b.key);
     case 'chitNo':
       return isId(b.chit);
     case 'dm':
-      return isKey(b.with) && isSealed(b.sealed);
+      return isKey(b.with) && isSealed(b.sealed) && (b.att === undefined || isAttachment(b.att));
   }
 }

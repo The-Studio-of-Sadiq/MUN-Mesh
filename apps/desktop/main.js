@@ -134,6 +134,44 @@ ipcMain.handle('log:clear', async () => {
   await fs.promises.rm(logFile(), { force: true });
 });
 
+// ── File chunks: one file per chunk, named by its hash ──
+const chunkDir = () => path.join(app.getPath('userData'), 'chunks');
+const chunkFile = (id) => {
+  if (typeof id !== 'string' || !/^[\w-]{24}$/.test(id)) throw new Error('Bad chunk id');
+  return path.join(chunkDir(), id);
+};
+
+ipcMain.handle('chunk:list', async () => {
+  try {
+    return (await fs.promises.readdir(chunkDir())).filter((n) => /^[\w-]{24}$/.test(n));
+  } catch (err) {
+    if (err.code === 'ENOENT') return [];
+    throw err;
+  }
+});
+
+ipcMain.handle('chunk:get', async (_e, id) => {
+  try {
+    return new Uint8Array(await fs.promises.readFile(chunkFile(id)));
+  } catch (err) {
+    if (err.code === 'ENOENT') return null;
+    throw err;
+  }
+});
+
+ipcMain.handle('chunk:put', async (_e, id, data) => {
+  if (!(data instanceof Uint8Array) || data.length > 300 * 1024) throw new Error('Bad chunk');
+  const file = chunkFile(id);
+  await fs.promises.mkdir(chunkDir(), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  await fs.promises.writeFile(tmp, data);
+  await fs.promises.rename(tmp, file);
+});
+
+ipcMain.handle('chunk:clear', async () => {
+  await fs.promises.rm(chunkDir(), { recursive: true, force: true });
+});
+
 app.whenReady().then(() => {
   lanNet.register();
   discovery.register();

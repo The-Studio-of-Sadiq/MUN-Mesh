@@ -2,8 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { FlatList, Pressable, Text, View } from 'react-native';
 import { readSealed, type B64, type Event, type HiddenReason, type ScopeView } from '@mun/core';
 import { timeOf, useSession } from '../hooks';
+import { pickFile } from '../platform/files';
+import type { PickedFile } from '../session';
 import { useTheme } from '../theme';
 import { Badge, Btn, Empty, Field, Row } from '../ui';
+import { AttachmentCard, formatSize } from './Attachment';
 
 const HIDDEN_LABEL: Record<HiddenReason, string> = {
   muted: 'sent while muted',
@@ -64,9 +67,12 @@ function Bubble(props: { item: Item; mine: boolean; pinned: boolean; onPin?: () 
           <Text style={styles.muted}>{timeOf(e.h.t)}</Text>
         </Row>
       </Row>
-      <Text style={styles.text} selectable>
-        {text}
-      </Text>
+      {text ? (
+        <Text style={styles.text} selectable>
+          {text}
+        </Text>
+      ) : null}
+      <AttachmentCard event={e} />
     </View>
   );
 }
@@ -132,25 +138,61 @@ function List(props: { items: Item[]; pinned: Set<B64>; onPin?: (id: B64, on: bo
   );
 }
 
-/** Text box and send button; `blocked` explains why posting isn't possible right now. */
+/**
+ * Text box, optional file, and send button. `blocked` explains why posting
+ * isn't possible right now. `onSend` may throw (e.g. a file over the limit);
+ * the message is shown and the draft kept.
+ */
 export function Composer(props: {
-  onSend: (text: string) => void;
+  onSend: (text: string, file?: PickedFile) => void | Promise<void>;
   placeholder: string;
   blocked?: string | null;
   sendLabel?: string;
   extra?: React.ReactNode;
+  /** Offer the Attach button. */
+  files?: boolean;
 }) {
   const { styles } = useTheme();
   const [text, setText] = useState('');
-  const send = () => {
+  const [file, setFile] = useState<PickedFile | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const send = async () => {
     const t = text.trim();
-    if (!t || props.blocked) return;
-    props.onSend(t);
-    setText('');
+    if ((!t && !file) || props.blocked || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await props.onSend(t, file ?? undefined);
+      setText('');
+      setFile(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const attach = async () => {
+    setError(null);
+    try {
+      const picked = await pickFile();
+      if (picked) setFile(picked);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
   };
   return (
     <View style={{ gap: 6 }}>
       {props.blocked ? <Text style={styles.muted}>{props.blocked}</Text> : null}
+      {file ? (
+        <Row>
+          <Text style={styles.small} numberOfLines={1}>
+            📎 {file.name} · {formatSize(file.data.length)}
+          </Text>
+          <Btn title="Remove" variant="outline" onPress={() => setFile(null)} />
+        </Row>
+      ) : null}
+      {error ? <Text style={styles.alert}>⚠ {error}</Text> : null}
       <Row style={{ flexWrap: 'nowrap', alignItems: 'flex-end' }}>
         <View style={{ flex: 1 }}>
           <Field
@@ -166,13 +208,19 @@ export function Composer(props: {
               const ne = e.nativeEvent as { key: string; shiftKey?: boolean };
               if (ne.key === 'Enter' && !ne.shiftKey) {
                 (e as unknown as { preventDefault?: () => void }).preventDefault?.();
-                send();
+                void send();
               }
             }}
           />
         </View>
+        {props.files && !props.blocked ? <Btn title="Attach" onPress={() => void attach()} hint="Choose a file to send" /> : null}
         {props.extra}
-        <Btn title={props.sendLabel ?? 'Send'} variant="primary" onPress={send} disabled={!!props.blocked || !text.trim()} />
+        <Btn
+          title={busy ? 'Sending…' : (props.sendLabel ?? 'Send')}
+          variant="primary"
+          onPress={() => void send()}
+          disabled={!!props.blocked || busy || (!text.trim() && !file)}
+        />
       </Row>
     </View>
   );

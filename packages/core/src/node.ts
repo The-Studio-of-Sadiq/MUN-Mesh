@@ -10,6 +10,15 @@ import { ALL, GLOBAL, type Bodies, type Conference, type Event, type Kind } from
 
 export const PROTOCOL_VERSION = 1;
 
+/** File chunk traffic, handled by `FileManager` (files.ts) through `onWire`. */
+export type FileWire =
+  /** Please send these chunks. */
+  | { t: 'want'; c: B64[] }
+  /** One chunk: its id and the encrypted bytes. */
+  | { t: 'chunk'; id: B64; d: B64 }
+  /** I don't have these. `soon`: I'm fetching them; ask again shortly (or I'll push them to you). */
+  | { t: 'nochunk'; c: B64[]; soon?: boolean };
+
 /** Reasons travel as codes so each device can show them in its own language. */
 export type ByeReason = 'versionMismatch' | 'wrongConference';
 
@@ -26,6 +35,7 @@ export type Wire =
   | { t: 'fork'; f: Fork[] }
   /** Devices waiting to be let in; spread to everyone so the right EB sees them. */
   | { t: 'join'; r: JoinRequest[] }
+  | FileWire
   | { t: 'bye'; reason: ByeReason };
 
 /** One connection to a neighbouring device. */
@@ -94,6 +104,8 @@ export class MeshNode {
   private readonly peers = new Map<string, Peer>();
   private readonly listeners = new Set<EventListener>();
   private readonly peerListeners = new Set<(peer: PeerInfo) => void>();
+  private readonly wireListeners = new Set<(peerId: string, msg: FileWire) => void>();
+  private readonly goneListeners = new Set<(peerId: string) => void>();
   private readonly joinListeners = new Set<(r: JoinRequest) => void>();
   /** Latest join request per device key. */
   private readonly joins = new Map<B64, JoinRequest>();
@@ -125,6 +137,36 @@ export class MeshNode {
   onJoinRequest(listener: (r: JoinRequest) => void): () => void {
     this.joinListeners.add(listener);
     return () => this.joinListeners.delete(listener);
+  }
+
+  /** File chunk messages from neighbours. */
+  onWire(listener: (peerId: string, msg: FileWire) => void): () => void {
+    this.wireListeners.add(listener);
+    return () => this.wireListeners.delete(listener);
+  }
+
+  /** Called when a link closes. */
+  onDisconnect(listener: (peerId: string) => void): () => void {
+    this.goneListeners.add(listener);
+    return () => this.goneListeners.delete(listener);
+  }
+
+  /** Sends to one neighbour that has said hello; false if it's gone. */
+  sendTo(peerId: string, msg: FileWire): boolean {
+    const peer = this.peers.get(peerId);
+    if (!peer?.subs) return false;
+    peer.link.send(msg);
+    return true;
+  }
+
+  /** A neighbour's signing key, once it has said hello. */
+  peerNode(peerId: string): B64 | null {
+    return this.peers.get(peerId)?.node ?? null;
+  }
+
+  /** Scopes a neighbour keeps, or null if it hasn't said hello. */
+  peerSubs(peerId: string): string[] | typeof ALL | null {
+    return this.peers.get(peerId)?.subs ?? null;
   }
 
   /** Linked neighbours (that have said hello). */
@@ -169,7 +211,8 @@ export class MeshNode {
   }
 
   disconnect(id: string): void {
-    this.peers.delete(id);
+    if (!this.peers.delete(id)) return;
+    for (const l of this.goneListeners) l(id);
   }
 
   /** Call every second or so; re-syncs with neighbours when due. */
@@ -239,8 +282,14 @@ export class MeshNode {
         if (fresh.length) this.broadcast({ t: 'join', r: fresh }, id);
         return;
       }
+      case 'want':
+      case 'chunk':
+      case 'nochunk':
+        if (!peer.subs) return;
+        for (const l of this.wireListeners) l(id, msg);
+        return;
       case 'bye':
-        this.peers.delete(id);
+        this.disconnect(id);
         return;
     }
   }
